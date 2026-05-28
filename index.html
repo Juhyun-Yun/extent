@@ -347,14 +347,29 @@
   .nav-dot.active { background: var(--sun-d); transform: scale(1.4); }
   .nav-dot.done { background: var(--mint); }
 
-  /* ===== 홈(목차) — 단원 카드 그리드 ===== */
+  /* ===== 홈(목차) — 단원 카드 그리드 (위쪽 3×2: 6단원 + 아래쪽 가로 배너: 총정리) ===== */
   .units-grid {
     display: grid;
     grid-template-columns: repeat(3, 1fr);
-    grid-template-rows: repeat(2, 1fr);
-    gap: 14px;
+    grid-template-rows: 1fr 1fr auto;
+    gap: 12px;
     flex: 1; min-height: 0;
   }
+  /* 7번째(총정리·마스터) — 마지막 행을 가로로 가득 채우는 배너 카드 */
+  .units-grid > :nth-child(7) {
+    grid-column: 1 / -1;
+    flex-direction: row;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 6px 22px;
+    padding: 12px 24px;
+  }
+  .units-grid > :nth-child(7) .uc-no { display: none; }
+  .units-grid > :nth-child(7) .uc-ico { font-size: 52px; flex: 0 0 auto; line-height: 1; }
+  .units-grid > :nth-child(7) h3 { font-size: 24px; flex: 0 0 auto; }
+  .units-grid > :nth-child(7) .uc-desc { font-size: 16px; flex: 1 1 220px; min-width: 0; }
+  .units-grid > :nth-child(7) .uc-prog { width: 200px; height: 14px; flex: 0 0 auto; }
+  .units-grid > :nth-child(7) .uc-stat { flex: 0 0 auto; }
   .unit-card {
     border-radius: 20px;
     padding: 18px 20px;
@@ -393,6 +408,7 @@
   .unit-color-4 { background: linear-gradient(135deg, #4DABF7, #1971C2); box-shadow: 0 6px 0 #15539A; }
   .unit-color-5 { background: linear-gradient(135deg, #9775FA, #7048E8); box-shadow: 0 6px 0 #5532B8; }
   .unit-color-6 { background: linear-gradient(135deg, #FF8C66, #FA5252); box-shadow: 0 6px 0 #C13F3F; }
+  .unit-color-7 { background: linear-gradient(135deg, #FFD700, #FFA500); box-shadow: 0 6px 0 #B8860B; }
 
   /* ===== 차시 목차 — 5단계 ===== */
   .steps-list {
@@ -779,7 +795,8 @@ const UNITS = [
   { id: 'para',      no: 3, title: '평행사변형의 넓이', ico: ICO_PARA, color: 3, desc: '잘라 옮겨 직사각형으로 만들어요' },
   { id: 'tri',       no: 4, title: '삼각형의 넓이',   ico: '🔺',     color: 4, desc: '두 개를 모아 평행사변형으로 만들어요' },
   { id: 'trap',      no: 5, title: '사다리꼴의 넓이', ico: ICO_TRAP, color: 5, desc: '두 개를 모아 평행사변형으로 만들어요' },
-  { id: 'rhom',      no: 6, title: '마름모의 넓이',   ico: '◆',      color: 6, desc: '직사각형의 절반이에요' }
+  { id: 'rhom',      no: 6, title: '마름모의 넓이',   ico: '◆',      color: 6, desc: '직사각형의 절반이에요' },
+  { id: 'review',    no: 7, title: '총정리 · 마스터', ico: '🏆',     color: 7, desc: '모든 도형을 모아 풀어 마스터가 돼요' }
 ];
 
 // ============================================================
@@ -1630,6 +1647,125 @@ function makeDraggable(svg, el, opts) {
   }
   el.addEventListener('pointerup', end);
   el.addEventListener('pointercancel', end);
+}
+
+// 이동+회전 가능한 요소를 만든다.
+// el: 외부 <g> 컨테이너. 그 안에 .moveHandle / .rotateHandle 자식 요소가 있어야 함.
+// opts.cx, opts.cy: 도형의 중심(로컬 좌표). 회전 중심으로 사용.
+// opts.tx, opts.ty, opts.rot: 초기 변환값
+// opts.snap: { tx, ty, rot, dDist, dRot } 또는 배열. 가까우면 snap.
+// opts.onSnap(snapInfo) 콜백.
+// opts.onChange(tx, ty, rot) 콜백.
+function makeMoveRotatable(svg, el, opts) {
+  opts = opts || {};
+  const cx = opts.cx || 0, cy = opts.cy || 0;
+  let tx = opts.tx || 0, ty = opts.ty || 0, rot = opts.rot || 0;
+  let snapped = false;
+  function apply() {
+    el.setAttribute('transform', `translate(${tx},${ty}) rotate(${rot} ${cx} ${cy})`);
+    if (opts.onChange) opts.onChange(tx, ty, rot);
+  }
+  function pt(e) {
+    const p = svg.createSVGPoint();
+    p.x = e.clientX; p.y = e.clientY;
+    const ctm = svg.getScreenCTM();
+    if (!ctm) return { x: e.clientX, y: e.clientY };
+    return p.matrixTransform(ctm.inverse());
+  }
+  function trySnap() {
+    if (!opts.snap) return false;
+    const list = Array.isArray(opts.snap) ? opts.snap : [opts.snap];
+    for (let i = 0; i < list.length; i++) {
+      const s = list[i];
+      if (s._used) continue;
+      const dt = Math.hypot(tx - s.tx, ty - s.ty);
+      let rd = ((rot - s.rot) % 360 + 360) % 360;
+      rd = Math.min(rd, 360 - rd);
+      if (dt < (s.dDist || 55) && rd < (s.dRot || 30)) {
+        tx = s.tx; ty = s.ty; rot = s.rot;
+        s._used = true;
+        snapped = true;
+        apply();
+        if (opts.onSnap) opts.onSnap(s, i);
+        return true;
+      }
+    }
+    return false;
+  }
+  const mh = el.querySelector('.moveHandle');
+  if (mh) {
+    mh.style.touchAction = 'none';
+    let drag = false, sx = 0, sy = 0;
+    mh.addEventListener('pointerdown', e => {
+      if (snapped) return;
+      drag = true;
+      const p = pt(e);
+      sx = p.x - tx; sy = p.y - ty;
+      try { mh.setPointerCapture(e.pointerId); } catch (er) {}
+      e.preventDefault();
+      e.stopPropagation();
+    });
+    mh.addEventListener('pointermove', e => {
+      if (!drag) return;
+      const p = pt(e);
+      tx = p.x - sx; ty = p.y - sy;
+      apply();
+    });
+    function endMove(e) {
+      if (!drag) return;
+      drag = false;
+      try { mh.releasePointerCapture(e.pointerId); } catch (er) {}
+      trySnap();
+    }
+    mh.addEventListener('pointerup', endMove);
+    mh.addEventListener('pointercancel', endMove);
+  }
+  const rh = el.querySelector('.rotateHandle');
+  if (rh) {
+    rh.style.touchAction = 'none';
+    let drag = false, lastAng = 0;
+    rh.addEventListener('pointerdown', e => {
+      if (snapped) return;
+      drag = true;
+      const p = pt(e);
+      const gcx = cx + tx, gcy = cy + ty;
+      lastAng = Math.atan2(p.y - gcy, p.x - gcx) * 180 / Math.PI;
+      try { rh.setPointerCapture(e.pointerId); } catch (er) {}
+      e.preventDefault();
+      e.stopPropagation();
+    });
+    rh.addEventListener('pointermove', e => {
+      if (!drag) return;
+      const p = pt(e);
+      const gcx = cx + tx, gcy = cy + ty;
+      const ang = Math.atan2(p.y - gcy, p.x - gcx) * 180 / Math.PI;
+      let delta = ang - lastAng;
+      if (delta > 180) delta -= 360;
+      if (delta < -180) delta += 360;
+      rot = ((rot + delta) % 360 + 360) % 360;
+      lastAng = ang;
+      apply();
+    });
+    function endRot(e) {
+      if (!drag) return;
+      drag = false;
+      try { rh.releasePointerCapture(e.pointerId); } catch (er) {}
+      trySnap();
+    }
+    rh.addEventListener('pointerup', endRot);
+    rh.addEventListener('pointercancel', endRot);
+  }
+  apply();
+  return {
+    set: (a, b, c) => { tx = a; ty = b; rot = c; apply(); },
+    get: () => ({ tx, ty, rot }),
+    isSnapped: () => snapped,
+    reset: () => {
+      snapped = false;
+      if (Array.isArray(opts.snap)) opts.snap.forEach(s => s._used = false);
+      else if (opts.snap) opts.snap._used = false;
+    }
+  };
 }
 
 // 색종이 효과
@@ -3593,7 +3729,7 @@ defFrames('rect', 'concept', [
       <div class="stage-area" style="position:relative; padding: 20px">
         <svg id="r2f3" viewBox="0 0 760 400" width="100%" height="100%" preserveAspectRatio="xMidYMid meet" style="max-height:100%"></svg>
         <!-- 공식 팝업 -->
-        <div id="r2f3Pop" style="position:absolute; left:50%; bottom:14px; transform: translate(-50%, 20px); background:linear-gradient(135deg,#E5DAFF,#C5B3FF); border:4px solid #7048E8; border-radius:18px; padding:14px 22px; box-shadow:0 10px 30px rgba(80,40,200,0.35); text-align:center; font-size:28px; color:#2A2540; opacity:0; pointer-events:none; transition: opacity 0.4s, transform 0.4s; z-index: 50">
+        <div id="r2f3Pop" style="position:absolute; left:50%; bottom:14px; transform: translate(-50%, 20px); background:linear-gradient(135deg,#E5DAFF,#C5B3FF); border:4px solid #7048E8; border-radius:18px; padding:12px 18px; box-shadow:0 10px 30px rgba(80,40,200,0.35); text-align:center; font-size:24px; color:#2A2540; opacity:0; pointer-events:none; transition: opacity 0.4s, transform 0.4s; z-index: 50; white-space:nowrap; max-width:96%">
           <b>넓이 = <span style="color:#E64C82">가로</span> × <span style="color:#E64C82">세로</span></b>
         </div>
       </div>
@@ -3703,28 +3839,30 @@ defFrames('rect', 'concept', [
   { // F4: 한 변이 100배 길어지면 넓이는?
     html: () => `
       ${hintBar('🌍', '<b style="color:#E64C82">한 변</b>의 길이가 <b style="color:#E64C82">100배</b> 길어지면 넓이는 얼마나 차이날까요?')}
-      <div class="stage-area">
-        <svg viewBox="0 0 1400 540" width="1400" height="540" preserveAspectRatio="xMidYMid meet" style="max-height:100%">
-          <!-- 1 m² 정사각형 -->
-          <g transform="translate(40,90)">
-            <rect width="340" height="340" fill="#FFE9B3" stroke="#FF8C42" stroke-width="3"/>
-            <g stroke="#FFD08F" stroke-width="0.6">
-              ${(() => { let s=''; for(let i=1;i<10;i++) s += `<line x1="${i*34}" y1="0" x2="${i*34}" y2="340"/><line x1="0" y1="${i*34}" x2="340" y2="${i*34}"/>`; return s; })()}
+      <div class="stage-area" style="display:flex; gap:24px; padding:18px; align-items:center">
+        <!-- 왼쪽: 1 m² 정사각형 (글씨 크게) -->
+        <div style="flex:0 0 32%; display:flex; align-items:center; justify-content:center; height:100%">
+          <svg viewBox="0 0 420 460" width="100%" height="100%" preserveAspectRatio="xMidYMid meet" style="max-height:100%">
+            <g transform="translate(50,90)">
+              <rect width="320" height="320" fill="#FFE9B3" stroke="#FF8C42" stroke-width="4"/>
+              <g stroke="#FFD08F" stroke-width="0.8">
+                ${(() => { let s=''; for(let i=1;i<10;i++) s += `<line x1="${i*32}" y1="0" x2="${i*32}" y2="320"/><line x1="0" y1="${i*32}" x2="320" y2="${i*32}"/>`; return s; })()}
+              </g>
+              <rect width="32" height="32" fill="#4DABF7" stroke="#1971C2" stroke-width="2"/>
+              <text x="16" y="22" text-anchor="middle" font-size="14" fill="#1971C2" font-weight="800">1cm²</text>
+              <text x="160" y="-24" text-anchor="middle" font-size="48" fill="#5D4037" font-weight="800">1 m = 100 cm</text>
+              <text x="-22" y="170" text-anchor="end" font-size="48" fill="#5D4037" font-weight="800">1 m</text>
             </g>
-            <rect width="34" height="34" fill="#4DABF7" stroke="#1971C2" stroke-width="2"/>
-            <text x="17" y="24" text-anchor="middle" font-size="14" fill="#1971C2" font-weight="800">1cm²</text>
-            <text x="170" y="-16" text-anchor="middle" font-size="30" fill="#5D4037">1 m = 100 cm</text>
-            <text x="-16" y="180" text-anchor="end" font-size="30" fill="#5D4037">1 m</text>
-          </g>
-          <!-- 오른쪽: 단계별 정리 — 1.5배 키움, 한 줄에 끝까지 보이도록 -->
-          <g transform="translate(440,60)">
-            <text font-size="72" fill="#FF477E" font-weight="800"><tspan x="0" y="0">1 cm × 1 cm = 1 cm²</tspan></text>
-            <text font-size="72" fill="#7048E8" font-weight="800"><tspan x="0" y="120">1 m = 100 cm</tspan></text>
-            <text font-size="72" fill="#FF477E" font-weight="800"><tspan x="0" y="240">100 cm × 100 cm = 10000 cm²</tspan></text>
-            <text font-size="72" fill="#7048E8" font-weight="800"><tspan x="0" y="360">1 m × 1 m = 1 m²</tspan></text>
-            <text font-size="60" fill="#2A2540"><tspan x="0" y="470">→ 1 m² = 10,000 cm²</tspan></text>
-          </g>
-        </svg>
+          </svg>
+        </div>
+        <!-- 오른쪽: 단계별 정리 (HTML로 크게 표시) -->
+        <div style="flex:1 1 auto; display:flex; flex-direction:column; justify-content:center; gap:18px; font-family:Jua; line-height:1.15">
+          <div style="font-size: clamp(36px, 5.6vw, 96px); color:#FF477E; font-weight:800; white-space:nowrap">1 cm × 1 cm = 1 cm²</div>
+          <div style="font-size: clamp(36px, 5.6vw, 96px); color:#7048E8; font-weight:800; white-space:nowrap">1 m = 100 cm</div>
+          <div style="font-size: clamp(30px, 4.6vw, 80px); color:#FF477E; font-weight:800; white-space:nowrap">100 cm × 100 cm = 10000 cm²</div>
+          <div style="font-size: clamp(36px, 5.6vw, 96px); color:#7048E8; font-weight:800; white-space:nowrap">1 m × 1 m = 1 m²</div>
+          <div style="font-size: clamp(34px, 5.2vw, 88px); color:#2A2540; font-weight:800; white-space:nowrap">→ 1 m² = 10,000 cm²</div>
+        </div>
       </div>
     `
   }
@@ -3890,7 +4028,7 @@ defFrames('para', 'concept', [
           }
         },
         {
-          msg: '<div>가로·세로 라는 말 대신,</div><div>평행사변형에서는 <span style="color:#FF477E"><b>밑변</b></span>이라는 말을 써요.</div>',
+          msg: '<div>그래서 가로, 세로라는 말 대신</div><div>평행사변형에서는 <span style="color:#FF477E"><b>밑변</b></span>이라는 말을 써요.</div>',
           draw: () => {
             let g = gridG(gx, gy, 16, 9, cell);
             g += `<polygon points="${BL.join(',')} ${BR.join(',')} ${TR.join(',')} ${TL.join(',')}" fill="rgba(81,207,102,0.4)" stroke="#2FB344" stroke-width="4"/>`;
@@ -4225,15 +4363,14 @@ defFrames('tri', 'concept', [
       show();
     }
   },
-  { // F2: 똑같은 삼각형 2개 — 매번 45°씩 회전(4번 눌러야 180°) → 직접 드래그
+  { // F2: 두 삼각형 — 마우스로 직접 이동·회전
     html: () => `
-      ${hintBar('🤝', '<b>↻ 돌리기</b>를 4번 눌러 삼각형을 거꾸로 만든 뒤, 직접 끌어서 옆에 붙여 봐요!')}
+      ${hintBar('🤝', '<b>삼각형을 180도 돌려서 원래 있던 삼각형 옆으로 이동하면 평행사변형이 돼요.</b>')}
       <div class="stage-area" style="position:relative">
-        <svg id="t4f2" viewBox="0 0 700 380" width="700" height="380" preserveAspectRatio="xMidYMid meet" style="max-height:100%"></svg>
-        <div style="position:absolute; top:10px; right:14px; display:flex; gap:8px; align-items:center">
-          <span id="t4f2Deg" style="font-family:Jua; font-size:16px; color:#7048E8; background:white; border:2px solid #C2B0F0; border-radius:8px; padding:6px 10px">0° / 180°</span>
-          <button id="t4f2Rot" class="check-btn" style="background:#FF477E; color:white; box-shadow:0 3px 0 #C2375F; font-size:16px; padding:8px 14px">↻ 돌리기</button>
-          <button id="t4f2Reset" style="padding:6px 12px; font-size:14px; background:#FFF6E0; color:#7048E8; border:2px solid #C2B0F0; border-radius:8px; font-family:Jua; cursor:pointer">↺ 처음으로</button>
+        <svg id="t4f2" viewBox="0 0 760 400" width="760" height="400" preserveAspectRatio="xMidYMid meet" style="max-height:100%"></svg>
+        <button id="t4f2Reset" style="position:absolute; top:10px; right:14px; padding:6px 12px; font-size:14px; background:#FFF6E0; color:#7048E8; border:2px solid #C2B0F0; border-radius:8px; font-family:Jua; cursor:pointer">↺ 처음으로</button>
+        <div style="position:absolute; left:14px; bottom:8px; font-size:14px; color:#7048E8; background:rgba(255,255,255,0.85); border:2px solid #C2B0F0; border-radius:8px; padding:4px 10px; font-family:Jua">
+          <span style="color:#7048E8">✥</span> 이동 · <span style="color:#E64C82">↻</span> 돌리기
         </div>
       </div>
       <div id="t4f2Done" class="hidden" style="background:linear-gradient(135deg,#FFE5BA,#FFD08F); border:3px solid #E69A1F; border-radius:14px; padding:12px 20px; text-align:center; font-size:20px; color:#2A2540; box-shadow:0 4px 0 #C99820; margin:0 auto">
@@ -4243,80 +4380,71 @@ defFrames('tri', 'concept', [
     `,
     init: () => {
       const svg = document.getElementById('t4f2');
-      const A = [200, 80], B = [100, 280], C = [340, 280];
-      const gcx = (A[0]+B[0]+C[0])/3, gcy = (A[1]+B[1]+C[1])/3;
-      const acMid = [(A[0]+C[0])/2, (A[1]+C[1])/2];
-      const tgtDx = (acMid[0] - gcx) * 2;
-      const tgtDy = (acMid[1] - gcy) * 2;
-      let curRot = 0;       // 현재 회전 각도
-      let placed = false;   // 자리에 놓였는지
+      // 도형 정의 (로컬 좌표)
+      const A = [180, 100], B = [80, 280], C = [320, 280];
+      const cx = (A[0]+B[0]+C[0])/3, cy = (A[1]+B[1]+C[1])/3;
+      // 시작 위치: 오른쪽으로 떨어뜨려 표시
+      const initTx = 360, initTy = 0;
+      // 목표: 180° 회전 후 평행이동 → 고정 삼각형과 변 AC를 공유하는 평행사변형 완성
+      const tgtTx = (A[0]+C[0]) - 2*cx;
+      const tgtTy = (A[1]+C[1]) - 2*cy;
 
-      function draw() {
+      function render() {
         let g = '';
-        // 목표 자리 점선 안내 (회전 완료 후)
-        if (curRot >= 180 && !placed) {
-          const r = (p) => [2*acMid[0] - p[0], 2*acMid[1] - p[1]];
-          const rA = r(A), rB = r(B), rC = r(C);
-          g += `<polygon points="${rA.join(',')} ${rB.join(',')} ${rC.join(',')}" fill="rgba(255,201,64,0.12)" stroke="#E69A1F" stroke-width="2" stroke-dasharray="6,4"/>`;
-          g += `<text x="${rB[0]+10}" y="${rB[1]+5}" font-size="14" fill="#E69A1F">여기로</text>`;
-        }
-        // 원래 삼각형 (고정)
+        // 점선 목표 자리
+        const tA = [2*cx - A[0] + tgtTx, 2*cy - A[1] + tgtTy];
+        const tB = [2*cx - B[0] + tgtTx, 2*cy - B[1] + tgtTy];
+        const tC = [2*cx - C[0] + tgtTx, 2*cy - C[1] + tgtTy];
+        g += `<polygon points="${tA.join(',')} ${tB.join(',')} ${tC.join(',')}" fill="rgba(255,201,64,0.12)" stroke="#E69A1F" stroke-width="2" stroke-dasharray="6,4"/>`;
+        g += `<text x="${(tA[0]+tB[0]+tC[0])/3}" y="${(tA[1]+tB[1]+tC[1])/3+6}" text-anchor="middle" font-size="18" fill="#E69A1F">여기로</text>`;
+        // 고정 삼각형 (왼쪽)
         g += `<polygon points="${A.join(',')} ${B.join(',')} ${C.join(',')}" fill="rgba(255,201,64,0.55)" stroke="#E69A1F" stroke-width="4"/>`;
-        // 복사본
-        const outerTx = placed ? tgtDx : 0;
-        const outerTy = placed ? tgtDy : 0;
-        const cursor = (curRot >= 175 && !placed) ? 'grab' : 'default';
-        g += `<g id="t4outer" style="cursor:${cursor}" transform="translate(${outerTx},${outerTy})">
-          <g style="transition: transform 0.5s cubic-bezier(.5,.1,.5,1.1)" transform="rotate(${curRot} ${gcx} ${gcy})">
-            <polygon points="${A.join(',')} ${B.join(',')} ${C.join(',')}" fill="rgba(255,201,64,0.78)" stroke="#E69A1F" stroke-width="4" stroke-dasharray="${curRot === 0 ? '8,5' : 'none'}"/>
-            <!-- 회전 방향이 보이도록 한 꼭짓점에 작은 표시 -->
-            <circle cx="${A[0]}" cy="${A[1]}" r="8" fill="#E64C82" stroke="white" stroke-width="2"/>
+        // 움직이는 삼각형 (이동·회전 가능)
+        g += `<g id="t4mov">
+          <polygon points="${A.join(',')} ${B.join(',')} ${C.join(',')}" fill="rgba(255,201,64,0.85)" stroke="#E69A1F" stroke-width="4"/>
+          <circle cx="${A[0]}" cy="${A[1]}" r="6" fill="#E64C82" stroke="white" stroke-width="2"/>
+          <g class="moveHandle">
+            <circle cx="${cx}" cy="${cy}" r="22" fill="white" stroke="#7048E8" stroke-width="3"/>
+            <text x="${cx}" y="${cy+9}" text-anchor="middle" font-size="26" fill="#7048E8" font-weight="800">✥</text>
+          </g>
+          <g class="rotateHandle">
+            <line x1="${cx}" y1="${cy-22}" x2="${cx}" y2="${cy-100}" stroke="#E64C82" stroke-width="2" stroke-dasharray="4,3"/>
+            <circle cx="${cx}" cy="${cy-120}" r="22" fill="white" stroke="#E64C82" stroke-width="3"/>
+            <text x="${cx}" y="${cy-111}" text-anchor="middle" font-size="26" fill="#E64C82" font-weight="800">↻</text>
           </g>
         </g>`;
-        // 안내 텍스트
-        if (curRot < 180) {
-          g += `<text x="350" y="365" text-anchor="middle" font-size="18" fill="#E69A1F">'↻ 돌리기'를 ${Math.ceil((180-curRot)/45)}번 더 눌러 보아요.</text>`;
-        } else if (!placed) {
-          g += `<text x="350" y="365" text-anchor="middle" font-size="18" fill="#7048E8">회전 끝! 이제 도형을 직접 끌어서 점선 자리로 옮겨 봐요.</text>`;
-        }
-        // 완성 라벨
-        if (placed) {
-          g += `<text x="${(B[0]+C[0])/2}" y="${B[1]+30}" text-anchor="middle" font-size="22" fill="#FF477E"><tspan font-weight="800">밑변</tspan></text>`;
-          g += `<line x1="${A[0]}" y1="${A[1]}" x2="${A[0]}" y2="${B[1]}" stroke="#7048E8" stroke-width="3" stroke-dasharray="6,4" pointer-events="none"/>`;
-          g += `<text x="${A[0]+12}" y="${(A[1]+B[1])/2+8}" font-size="22" fill="#7048E8"><tspan font-weight="800">높이</tspan></text>`;
-        }
         svg.innerHTML = g;
-        document.getElementById('t4f2Deg').textContent = `${curRot}° / 180°`;
-        // 드래그는 회전 거의 완료 후 활성화
-        if (curRot >= 175 && !placed) {
-          const outer = document.getElementById('t4outer');
-          makeDraggable(svg, outer, {
-            snap: { x: tgtDx, y: tgtDy, distance: 50 },
-            onSnap: () => {
-              placed = true;
-              draw();
-              setTimeout(() => {
-                document.getElementById('t4f2Done').classList.remove('hidden');
-                burstConfetti(540, 360);
-                addStars(state.studentName, 2);
-              }, 200);
-            }
-          });
-        }
-      }
-      function rotate() {
-        if (placed || curRot >= 180) return;
-        curRot = Math.min(180, curRot + 45);
-        draw();
+        const movEl = document.getElementById('t4mov');
+        makeMoveRotatable(svg, movEl, {
+          cx, cy, tx: initTx, ty: initTy, rot: 0,
+          snap: { tx: tgtTx, ty: tgtTy, rot: 180, dDist: 70, dRot: 35 },
+          onSnap: () => {
+            const handles = movEl.querySelectorAll('.moveHandle, .rotateHandle');
+            handles.forEach(h => h.style.display = 'none');
+            // 평행사변형 라벨
+            const lblY = B[1] + 30;
+            const lbl = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+            lbl.innerHTML = `
+              <line x1="${B[0]}" y1="${B[1]+12}" x2="${C[0]}" y2="${C[1]+12}" stroke="#FF477E" stroke-width="3"/>
+              <text x="${(B[0]+C[0])/2}" y="${lblY+10}" text-anchor="middle" font-size="22" fill="#FF477E" font-weight="800">밑변</text>
+              <line x1="${A[0]}" y1="${A[1]}" x2="${A[0]}" y2="${B[1]}" stroke="#7048E8" stroke-width="3" stroke-dasharray="6,4"/>
+              <text x="${A[0]+12}" y="${(A[1]+B[1])/2+8}" font-size="22" fill="#7048E8" font-weight="800">높이</text>
+            `;
+            svg.appendChild(lbl);
+            setTimeout(() => {
+              document.getElementById('t4f2Done').classList.remove('hidden');
+              burstConfetti(540, 360);
+              addStars(state.studentName, 2);
+            }, 200);
+          }
+        });
       }
       function reset() {
-        curRot = 0; placed = false;
         document.getElementById('t4f2Done').classList.add('hidden');
-        draw();
+        render();
       }
-      document.getElementById('t4f2Rot').onclick = rotate;
       document.getElementById('t4f2Reset').onclick = reset;
-      draw();
+      render();
     }
   },
   { // F3: 공식 확인 — 도형 위 / 식+공식 아래 (grid 통일 양식)
@@ -4570,15 +4698,14 @@ defFrames('trap', 'concept', [
       show();
     }
   },
-  { // F2: 똑같은 사다리꼴 2개 — 45°씩 회전(4번 = 180°) → 직접 드래그
+  { // F2: 두 사다리꼴 — 마우스로 직접 이동·회전
     html: () => `
-      ${hintBar('🤝', '<b>↻ 돌리기</b>를 4번 눌러 사다리꼴을 거꾸로 만든 뒤, 직접 끌어서 옆에 붙여 봐요!')}
+      ${hintBar('🤝', '<b>사다리꼴을 180도 돌려서 원래 있던 사다리꼴 옆으로 이동하면 평행사변형이 돼요.</b>')}
       <div class="stage-area" style="position:relative">
-        <svg id="tp5f2" viewBox="0 0 700 380" width="700" height="380" preserveAspectRatio="xMidYMid meet" style="max-height:100%"></svg>
-        <div style="position:absolute; top:10px; right:14px; display:flex; gap:8px; align-items:center">
-          <span id="tp5f2Deg" style="font-family:Jua; font-size:16px; color:#7048E8; background:white; border:2px solid #C2B0F0; border-radius:8px; padding:6px 10px">0° / 180°</span>
-          <button id="tp5f2Rot" class="check-btn" style="background:#FF477E; color:white; box-shadow:0 3px 0 #C2375F; font-size:16px; padding:8px 14px">↻ 돌리기</button>
-          <button id="tp5f2Reset" style="padding:6px 12px; font-size:14px; background:#FFF6E0; color:#7048E8; border:2px solid #C2B0F0; border-radius:8px; font-family:Jua; cursor:pointer">↺ 처음으로</button>
+        <svg id="tp5f2" viewBox="0 0 760 400" width="760" height="400" preserveAspectRatio="xMidYMid meet" style="max-height:100%"></svg>
+        <button id="tp5f2Reset" style="position:absolute; top:10px; right:14px; padding:6px 12px; font-size:14px; background:#FFF6E0; color:#7048E8; border:2px solid #C2B0F0; border-radius:8px; font-family:Jua; cursor:pointer">↺ 처음으로</button>
+        <div style="position:absolute; left:14px; bottom:8px; font-size:14px; color:#7048E8; background:rgba(255,255,255,0.85); border:2px solid #C2B0F0; border-radius:8px; padding:4px 10px; font-family:Jua">
+          <span style="color:#7048E8">✥</span> 이동 · <span style="color:#E64C82">↻</span> 돌리기
         </div>
       </div>
       <div id="tp5f2Done" class="hidden" style="background:linear-gradient(135deg,#FFE5BA,#FFD08F); border:3px solid #E69A1F; border-radius:14px; padding:12px 20px; text-align:center; font-size:20px; color:#2A2540; box-shadow:0 4px 0 #C99820; margin:0 auto">
@@ -4588,81 +4715,71 @@ defFrames('trap', 'concept', [
     `,
     init: () => {
       const svg = document.getElementById('tp5f2');
+      // 사다리꼴 로컬 좌표
       const TL = [220, 80], TR = [300, 80], BR = [380, 260], BL = [140, 260];
-      const gcx = (TL[0]+TR[0]+BR[0]+BL[0])/4;
-      const gcy = (TL[1]+TR[1]+BR[1]+BL[1])/4;
+      const cx = (TL[0]+TR[0]+BR[0]+BL[0])/4;
+      const cy = (TL[1]+TR[1]+BR[1]+BL[1])/4;
       const rMid = [(TR[0]+BR[0])/2, (TR[1]+BR[1])/2];
-      const tgtDx = (rMid[0] - gcx) * 2;
-      const tgtDy = (rMid[1] - gcy) * 2;
-      let curRot = 0;
-      let placed = false;
+      // 시작 위치: 오른쪽으로
+      const initTx = 360, initTy = 0;
+      // 목표: 180° 회전 후 평행이동 → 오른쪽 변(TR-BR)을 공유하는 평행사변형
+      const tgtTx = (rMid[0] - cx) * 2;
+      const tgtTy = (rMid[1] - cy) * 2;
 
-      function draw() {
+      function render() {
         let g = '';
-        if (curRot >= 180 && !placed) {
-          const r = (p) => [2*rMid[0] - p[0], 2*rMid[1] - p[1]];
-          const rTL = r(TL), rTR = r(TR), rBR = r(BR), rBL = r(BL);
-          g += `<polygon points="${rTL.join(',')} ${rTR.join(',')} ${rBR.join(',')} ${rBL.join(',')}" fill="rgba(255,201,64,0.12)" stroke="#E69A1F" stroke-width="2" stroke-dasharray="6,4"/>`;
-          g += `<text x="${rTL[0]-8}" y="${rTL[1]-10}" font-size="14" fill="#E69A1F">여기로</text>`;
-        }
+        // 점선 목표 자리
+        const r = (p) => [2*rMid[0] - p[0], 2*rMid[1] - p[1]];
+        const rTL = r(TL), rTR = r(TR), rBR = r(BR), rBL = r(BL);
+        g += `<polygon points="${rTL.join(',')} ${rTR.join(',')} ${rBR.join(',')} ${rBL.join(',')}" fill="rgba(255,201,64,0.12)" stroke="#E69A1F" stroke-width="2" stroke-dasharray="6,4"/>`;
+        g += `<text x="${(rTL[0]+rTR[0]+rBR[0]+rBL[0])/4}" y="${(rTL[1]+rTR[1]+rBR[1]+rBL[1])/4+6}" text-anchor="middle" font-size="18" fill="#E69A1F">여기로</text>`;
         // 원래 사다리꼴 (고정)
         g += `<polygon points="${TL.join(',')} ${TR.join(',')} ${BR.join(',')} ${BL.join(',')}" fill="rgba(255,201,64,0.55)" stroke="#E69A1F" stroke-width="4"/>`;
-        // 복사본
-        const outerTx = placed ? tgtDx : 0;
-        const outerTy = placed ? tgtDy : 0;
-        const cursor = (curRot >= 175 && !placed) ? 'grab' : 'default';
-        g += `<g id="tp5outer" style="cursor:${cursor}" transform="translate(${outerTx},${outerTy})">
-          <g style="transition: transform 0.5s cubic-bezier(.5,.1,.5,1.1)" transform="rotate(${curRot} ${gcx} ${gcy})">
-            <polygon points="${TL.join(',')} ${TR.join(',')} ${BR.join(',')} ${BL.join(',')}" fill="rgba(255,201,64,0.78)" stroke="#E69A1F" stroke-width="4" stroke-dasharray="${curRot === 0 ? '8,5' : 'none'}"/>
-            <circle cx="${TL[0]}" cy="${TL[1]}" r="8" fill="#E64C82" stroke="white" stroke-width="2"/>
+        // 움직이는 사다리꼴
+        g += `<g id="tp5mov">
+          <polygon points="${TL.join(',')} ${TR.join(',')} ${BR.join(',')} ${BL.join(',')}" fill="rgba(255,201,64,0.85)" stroke="#E69A1F" stroke-width="4"/>
+          <circle cx="${TL[0]}" cy="${TL[1]}" r="6" fill="#E64C82" stroke="white" stroke-width="2"/>
+          <g class="moveHandle">
+            <circle cx="${cx}" cy="${cy}" r="22" fill="white" stroke="#7048E8" stroke-width="3"/>
+            <text x="${cx}" y="${cy+9}" text-anchor="middle" font-size="26" fill="#7048E8" font-weight="800">✥</text>
+          </g>
+          <g class="rotateHandle">
+            <line x1="${cx}" y1="${cy-22}" x2="${cx}" y2="${cy-80}" stroke="#E64C82" stroke-width="2" stroke-dasharray="4,3"/>
+            <circle cx="${cx}" cy="${cy-100}" r="22" fill="white" stroke="#E64C82" stroke-width="3"/>
+            <text x="${cx}" y="${cy-91}" text-anchor="middle" font-size="26" fill="#E64C82" font-weight="800">↻</text>
           </g>
         </g>`;
-        // 안내
-        if (curRot < 180) {
-          g += `<text x="350" y="345" text-anchor="middle" font-size="18" fill="#E69A1F">'↻ 돌리기'를 ${Math.ceil((180-curRot)/45)}번 더 눌러 보아요.</text>`;
-        } else if (!placed) {
-          g += `<text x="350" y="345" text-anchor="middle" font-size="18" fill="#7048E8">회전 끝! 사다리꼴을 직접 끌어서 점선 자리로 옮겨 봐요.</text>`;
-        }
-        // 완성 라벨
-        if (placed) {
-          g += `<line x1="${TL[0]}" y1="${TL[1]}" x2="${TR[0]}" y2="${TR[1]}" stroke="#2FB344" stroke-width="6"/>`;
-          g += `<line x1="${BL[0]}" y1="${BL[1]}" x2="${BR[0]}" y2="${BR[1]}" stroke="#1971C2" stroke-width="6"/>`;
-          const r = (p) => [2*rMid[0] - p[0], 2*rMid[1] - p[1]];
-          const rTL = r(TL), rTR = r(TR);
-          g += `<line x1="${rTL[0]}" y1="${rTL[1]}" x2="${rTR[0]}" y2="${rTR[1]}" stroke="#2FB344" stroke-width="6"/>`;
-          g += `<text x="${(BL[0]+rTR[0])/2}" y="${BR[1]+34}" text-anchor="middle" font-size="20" fill="#FF477E"><tspan font-weight="800">평행사변형의 밑변 = 아랫변 + 윗변</tspan></text>`;
-        }
         svg.innerHTML = g;
-        document.getElementById('tp5f2Deg').textContent = `${curRot}° / 180°`;
-        if (curRot >= 175 && !placed) {
-          const outer = document.getElementById('tp5outer');
-          makeDraggable(svg, outer, {
-            snap: { x: tgtDx, y: tgtDy, distance: 50 },
-            onSnap: () => {
-              placed = true;
-              draw();
-              setTimeout(() => {
-                document.getElementById('tp5f2Done').classList.remove('hidden');
-                burstConfetti(540, 360);
-                addStars(state.studentName, 2);
-              }, 200);
-            }
-          });
-        }
-      }
-      function rotate() {
-        if (placed || curRot >= 180) return;
-        curRot = Math.min(180, curRot + 45);
-        draw();
+        const movEl = document.getElementById('tp5mov');
+        makeMoveRotatable(svg, movEl, {
+          cx, cy, tx: initTx, ty: initTy, rot: 0,
+          snap: { tx: tgtTx, ty: tgtTy, rot: 180, dDist: 70, dRot: 35 },
+          onSnap: () => {
+            const handles = movEl.querySelectorAll('.moveHandle, .rotateHandle');
+            handles.forEach(h => h.style.display = 'none');
+            // 완성 라벨
+            const lbl = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+            lbl.innerHTML = `
+              <line x1="${TL[0]}" y1="${TL[1]}" x2="${TR[0]}" y2="${TR[1]}" stroke="#2FB344" stroke-width="6"/>
+              <line x1="${BL[0]}" y1="${BL[1]}" x2="${BR[0]}" y2="${BR[1]}" stroke="#1971C2" stroke-width="6"/>
+              <line x1="${rTL[0]}" y1="${rTL[1]}" x2="${rTR[0]}" y2="${rTR[1]}" stroke="#2FB344" stroke-width="6"/>
+              <text x="${(BL[0]+rTR[0])/2}" y="${BR[1]+34}" text-anchor="middle" font-size="20" fill="#FF477E" font-weight="800">평행사변형의 밑변 = 아랫변 + 윗변</text>
+            `;
+            svg.appendChild(lbl);
+            setTimeout(() => {
+              document.getElementById('tp5f2Done').classList.remove('hidden');
+              burstConfetti(540, 360);
+              addStars(state.studentName, 2);
+            }, 200);
+          }
+        });
       }
       function reset() {
-        curRot = 0; placed = false;
         document.getElementById('tp5f2Done').classList.add('hidden');
-        draw();
+        render();
       }
-      document.getElementById('tp5f2Rot').onclick = rotate;
       document.getElementById('tp5f2Reset').onclick = reset;
-      draw();
+      render();
     }
   },
   { // F3: 공식 확인 — 도형 위 / 식+공식 아래 (grid 통일 양식)
@@ -4898,168 +5015,125 @@ defFrames('rhom', 'concept', [
       show();
     }
   },
-  { // F3: 마름모 → 자르기, 위 두 조각 45°씩 회전(4번 = 180°), 직접 드래그
+  { // F3: 마름모 4조각 → 큰 직사각형의 빈 자리에 맞추기 (이동·회전)
     html: () => `
-      ${hintBar('✂️', '① 자르기 → ② <b>↻ 돌리기</b>를 4번 눌러 위 두 조각을 거꾸로 → ③ 직접 끌어 옮겨요!')}
+      ${hintBar('🔄', '큰 직사각형 안에 마름모가 있어요. 마름모 4조각을 각각 <b>돌려서</b> 빈 자리에 맞춰 보아요.')}
       <div class="stage-area" style="position:relative">
-        <svg id="r6f3" viewBox="0 0 760 380" width="100%" height="100%" preserveAspectRatio="xMidYMid meet" style="max-height:100%"></svg>
-        <div style="position:absolute; top:10px; right:14px; display:flex; gap:8px; align-items:center; flex-wrap:wrap; justify-content:flex-end">
-          <button id="r6f3Cut" class="check-btn" style="background:#FF477E; color:white; box-shadow:0 3px 0 #C2375F; font-size:15px; padding:7px 12px">✂️ 자르기</button>
-          <span id="r6f3Deg" style="font-family:Jua; font-size:15px; color:#7048E8; background:white; border:2px solid #C2B0F0; border-radius:8px; padding:5px 8px">0° / 180°</span>
-          <button id="r6f3Rot" class="check-btn" style="background:#7048E8; color:white; box-shadow:0 3px 0 #5532B8; font-size:15px; padding:7px 12px" disabled>↻ 돌리기</button>
-          <button id="r6f3Reset" style="padding:5px 10px; font-size:13px; background:#FFF6E0; color:#7048E8; border:2px solid #C2B0F0; border-radius:8px; font-family:Jua; cursor:pointer">↺ 처음으로</button>
+        <svg id="r6f3" viewBox="0 0 760 400" width="100%" height="100%" preserveAspectRatio="xMidYMid meet" style="max-height:100%"></svg>
+        <button id="r6f3Reset" style="position:absolute; top:10px; right:14px; padding:6px 12px; font-size:14px; background:#FFF6E0; color:#7048E8; border:2px solid #C2B0F0; border-radius:8px; font-family:Jua; cursor:pointer">↺ 처음으로</button>
+        <div style="position:absolute; left:14px; bottom:8px; font-size:14px; color:#7048E8; background:rgba(255,255,255,0.85); border:2px solid #C2B0F0; border-radius:8px; padding:4px 10px; font-family:Jua">
+          <span style="color:#7048E8">✥</span> 이동 · <span style="color:#E64C82">↻</span> 돌리기
         </div>
       </div>
       <div id="r6f3Done" class="hidden" style="background:linear-gradient(135deg,#FFE5BA,#FFD08F); border:3px solid #E69A1F; border-radius:14px; padding:12px 20px; text-align:center; font-size:18px; color:#2A2540; box-shadow:0 4px 0 #C99820; margin:0 auto">
-        ✨ 직사각형이 됐어요! 가로는 <b style="color:#FF477E">한 대각선</b>, 세로는 <b style="color:#7048E8">다른 대각선의 반</b>이니까<br>
-        <b style="color:#7048E8">마름모 넓이 = 한 대각선 × 다른 대각선 ÷ 2</b>
+        ✨ 마름모의 4조각이 큰 직사각형의 빈 자리에 똑같이 들어가요!<br>
+        그래서 <b style="color:#7048E8">마름모 넓이 = 큰 직사각형 넓이 ÷ 2 = 한 대각선 × 다른 대각선 ÷ 2</b>
       </div>
     `,
     init: () => {
       const svg = document.getElementById('r6f3');
-      const cx = 380, cy = 180;
-      const d1 = 400, d2 = 220;
-      const top    = [cx, cy - d2/2];
-      const right  = [cx + d1/2, cy];
-      const bottom = [cx, cy + d2/2];
-      const left   = [cx - d1/2, cy];
-      const TLpts = [top, [cx,cy], left];
-      const TRpts = [top, right, [cx,cy]];
-      const BRpts = [[cx,cy], right, bottom];
-      const BLpts = [left, [cx,cy], bottom];
-      const tlGc = [(TLpts[0][0]+TLpts[1][0]+TLpts[2][0])/3, (TLpts[0][1]+TLpts[1][1]+TLpts[2][1])/3];
-      const trGc = [(TRpts[0][0]+TRpts[1][0]+TRpts[2][0])/3, (TRpts[0][1]+TRpts[1][1]+TRpts[2][1])/3];
-      const tlAxis = [(left[0]+cx)/2, cy];
-      const trAxis = [(cx+right[0])/2, cy];
-      const tlTargetTx = (tlAxis[0] - tlGc[0]) * 2;
-      const tlTargetTy = (tlAxis[1] - tlGc[1]) * 2;
-      const trTargetTx = (trAxis[0] - trGc[0]) * 2;
-      const trTargetTy = (trAxis[1] - trGc[1]) * 2;
+      const cx = 380, cy = 200;
+      const d1 = 320, d2 = 200; // 한 대각선 길이 (큰 직사각형의 가로·세로)
+      const rectX = cx - d1/2, rectY = cy - d2/2; // (220, 100)
+      const top    = [cx, cy - d2/2];   // (380, 100)
+      const right  = [cx + d1/2, cy];   // (540, 200)
+      const bottom = [cx, cy + d2/2];   // (380, 300)
+      const left   = [cx - d1/2, cy];   // (220, 200)
+      const center = [cx, cy];
 
-      // stage: 0=마름모 그대로, 1=자름(회전 가능), 2=회전 완료(드래그 가능), 3=둘 다 자리에
-      let stage = 0;
-      let curRot = 0;
-      let tlPlaced = false, trPlaced = false;
+      // 4 내부 삼각형: pts(로컬), 회전 중심(rcx,rcy)=마름모 변의 중점, 회전 핸들 위치=각 코너 빈 자리 안쪽
+      const tris = [
+        {
+          key: 'TL', pts: [top, center, left],
+          rcx: (top[0]+left[0])/2, rcy: (top[1]+left[1])/2,
+          rotHx: rectX + 36, rotHy: rectY + 36,
+        },
+        {
+          key: 'TR', pts: [top, right, center],
+          rcx: (top[0]+right[0])/2, rcy: (top[1]+right[1])/2,
+          rotHx: rectX + d1 - 36, rotHy: rectY + 36,
+        },
+        {
+          key: 'BR', pts: [center, right, bottom],
+          rcx: (right[0]+bottom[0])/2, rcy: (right[1]+bottom[1])/2,
+          rotHx: rectX + d1 - 36, rotHy: rectY + d2 - 36,
+        },
+        {
+          key: 'BL', pts: [left, center, bottom],
+          rcx: (left[0]+bottom[0])/2, rcy: (left[1]+bottom[1])/2,
+          rotHx: rectX + 36, rotHy: rectY + d2 - 36,
+        },
+      ];
+      const cornerTris = [
+        [[rectX, rectY], top, left],
+        [top, [rectX+d1, rectY], right],
+        [right, [rectX+d1, rectY+d2], bottom],
+        [left, bottom, [rectX, rectY+d2]],
+      ];
+      function ptsStr(pts) { return pts.map(p => p.join(',')).join(' '); }
 
-      function ptsStr(pts) { return pts.map(p=>p.join(',')).join(' '); }
+      let placedCount = 0;
 
-      function draw() {
+      function render() {
         let g = '';
-        if (stage >= 1) {
-          g += `<rect x="${cx - d1/2}" y="${cy - d2/2}" width="${d1}" height="${d2}" fill="none" stroke="#9775FA" stroke-width="2" stroke-dasharray="6,4"/>`;
-        }
-        // 목표 점선 (회전 끝나면)
-        if (stage >= 2 && !tlPlaced) {
-          const r = (p, ax) => [2*ax[0] - p[0], 2*ax[1] - p[1]];
-          const tlTgt = TLpts.map(p => r(p, tlAxis));
-          g += `<polygon points="${ptsStr(tlTgt)}" fill="rgba(255,107,157,0.12)" stroke="#FF477E" stroke-width="2" stroke-dasharray="6,4"/>`;
-        }
-        if (stage >= 2 && !trPlaced) {
-          const r = (p, ax) => [2*ax[0] - p[0], 2*ax[1] - p[1]];
-          const trTgt = TRpts.map(p => r(p, trAxis));
-          g += `<polygon points="${ptsStr(trTgt)}" fill="rgba(255,107,157,0.12)" stroke="#FF477E" stroke-width="2" stroke-dasharray="6,4"/>`;
-        }
-        // 아래 두 조각 (고정)
-        g += `<polygon points="${ptsStr(BRpts)}" fill="rgba(255,107,157,0.55)" stroke="#FF477E" stroke-width="3"/>`;
-        g += `<polygon points="${ptsStr(BLpts)}" fill="rgba(255,107,157,0.55)" stroke="#FF477E" stroke-width="3"/>`;
+        // 큰 직사각형 배경
+        g += `<rect x="${rectX}" y="${rectY}" width="${d1}" height="${d2}" fill="rgba(255,201,64,0.08)" stroke="#FFB840" stroke-width="3" stroke-dasharray="10,5"/>`;
         // 대각선
-        if (stage >= 1) {
-          g += `<line x1="${left[0]}" y1="${left[1]}" x2="${right[0]}" y2="${right[1]}" stroke="#7048E8" stroke-width="3" stroke-dasharray="6,3"/>`;
-          g += `<line x1="${top[0]}" y1="${top[1]}" x2="${bottom[0]}" y2="${bottom[1]}" stroke="#7048E8" stroke-width="3" stroke-dasharray="6,3"/>`;
-        }
-        // TL 조각
-        const tlOuterTx = tlPlaced ? tlTargetTx : 0;
-        const tlOuterTy = tlPlaced ? tlTargetTy : 0;
-        const tlCursor = (curRot >= 175 && !tlPlaced) ? 'grab' : 'default';
-        g += `<g id="r6f3TL" style="cursor:${tlCursor}" transform="translate(${tlOuterTx},${tlOuterTy})">
-          <g style="transition: transform 0.45s cubic-bezier(.5,.1,.5,1.1)" transform="rotate(${curRot} ${tlGc[0]} ${tlGc[1]})">
-            <polygon points="${ptsStr(TLpts)}" fill="rgba(255,107,157,0.8)" stroke="#FF477E" stroke-width="3"/>
-            <circle cx="${TLpts[0][0]}" cy="${TLpts[0][1]}" r="6" fill="#7048E8" stroke="white" stroke-width="2"/>
-          </g>
-        </g>`;
-        // TR 조각
-        const trOuterTx = trPlaced ? trTargetTx : 0;
-        const trOuterTy = trPlaced ? trTargetTy : 0;
-        const trCursor = (curRot >= 175 && !trPlaced) ? 'grab' : 'default';
-        g += `<g id="r6f3TR" style="cursor:${trCursor}" transform="translate(${trOuterTx},${trOuterTy})">
-          <g style="transition: transform 0.45s cubic-bezier(.5,.1,.5,1.1)" transform="rotate(${curRot} ${trGc[0]} ${trGc[1]})">
-            <polygon points="${ptsStr(TRpts)}" fill="rgba(255,107,157,0.8)" stroke="#FF477E" stroke-width="3"/>
-            <circle cx="${TRpts[0][0]}" cy="${TRpts[0][1]}" r="6" fill="#7048E8" stroke="white" stroke-width="2"/>
-          </g>
-        </g>`;
-        // 안내
-        if (stage === 1 && curRot < 180) {
-          g += `<text x="380" y="350" text-anchor="middle" font-size="16" fill="#7048E8">'↻ 돌리기'를 ${Math.ceil((180-curRot)/45)}번 더 눌러요.</text>`;
-        } else if (stage === 2 && (!tlPlaced || !trPlaced)) {
-          g += `<text x="380" y="350" text-anchor="middle" font-size="16" fill="#7048E8">위 두 조각(분홍)을 점선 자리로 끌어 옮기세요.</text>`;
-        }
-        // 라벨
-        if (stage === 3) {
-          const rectBot = cy + d2/2;
-          g += `<text x="${cx}" y="${rectBot + 32}" text-anchor="middle" font-size="22" fill="#FF477E"><tspan font-weight="800">가로 = 한 대각선 (${d1/40} cm)</tspan></text>`;
-          g += `<text x="${right[0] + 16}" y="${cy + d2/4 + 8}" font-size="22" fill="#7048E8"><tspan font-weight="800">세로 = 다른 대각선 ÷ 2</tspan></text>`;
-        } else {
-          g += `<text x="${right[0] + 30}" y="${cy + 8}" font-size="22" fill="#FF477E"><tspan font-weight="800">${d1/40} cm</tspan></text>`;
-          g += `<text x="${cx + 12}" y="${top[1] - 12}" font-size="22" fill="#7048E8"><tspan font-weight="800">${d2/40} cm</tspan></text>`;
-        }
+        g += `<line x1="${left[0]}" y1="${left[1]}" x2="${right[0]}" y2="${right[1]}" stroke="#7048E8" stroke-width="2" stroke-dasharray="6,3"/>`;
+        g += `<line x1="${top[0]}" y1="${top[1]}" x2="${bottom[0]}" y2="${bottom[1]}" stroke="#7048E8" stroke-width="2" stroke-dasharray="6,3"/>`;
+        // 4 코너 빈 자리 (점선 외곽)
+        cornerTris.forEach(pts => {
+          g += `<polygon points="${ptsStr(pts)}" fill="rgba(255,107,157,0.06)" stroke="#FF477E" stroke-width="2" stroke-dasharray="6,4"/>`;
+        });
+        // 라벨 (대각선 길이) — 도형 밖
+        g += `<text x="${cx}" y="${rectY+d2+34}" text-anchor="middle" font-size="22" fill="#FF477E" font-weight="800">한 대각선 ${d1/40} cm</text>`;
+        g += `<text x="${rectX-14}" y="${cy+8}" text-anchor="end" font-size="22" fill="#7048E8" font-weight="800">다른 대각선 ${d2/40} cm</text>`;
+        // 4 내부 삼각형 (마우스로 이동·회전)
+        tris.forEach(t => {
+          const ccx = (t.pts[0][0]+t.pts[1][0]+t.pts[2][0])/3;
+          const ccy = (t.pts[0][1]+t.pts[1][1]+t.pts[2][1])/3;
+          g += `<g id="r6tri${t.key}">
+            <polygon points="${ptsStr(t.pts)}" fill="rgba(255,107,157,0.78)" stroke="#FF477E" stroke-width="3"/>
+            <g class="moveHandle">
+              <circle cx="${ccx}" cy="${ccy}" r="14" fill="white" stroke="#7048E8" stroke-width="2.5"/>
+              <text x="${ccx}" y="${ccy+6}" text-anchor="middle" font-size="18" fill="#7048E8" font-weight="800">✥</text>
+            </g>
+            <g class="rotateHandle">
+              <circle cx="${t.rotHx}" cy="${t.rotHy}" r="14" fill="white" stroke="#E64C82" stroke-width="2.5"/>
+              <text x="${t.rotHx}" y="${t.rotHy+6}" text-anchor="middle" font-size="18" fill="#E64C82" font-weight="800">↻</text>
+            </g>
+          </g>`;
+        });
         svg.innerHTML = g;
-        document.getElementById('r6f3Deg').textContent = `${curRot}° / 180°`;
-        // 드래그 활성화 (회전 거의 완료 후)
-        if (curRot >= 175) {
-          if (stage !== 2 && stage !== 3) stage = 2;
-          if (!tlPlaced) {
-            const tl = document.getElementById('r6f3TL');
-            makeDraggable(svg, tl, {
-              snap: { x: tlTargetTx, y: tlTargetTy, distance: 50 },
-              onSnap: () => { tlPlaced = true; checkDone(); draw(); }
-            });
-          }
-          if (!trPlaced) {
-            const tr = document.getElementById('r6f3TR');
-            makeDraggable(svg, tr, {
-              snap: { x: trTargetTx, y: trTargetTy, distance: 50 },
-              onSnap: () => { trPlaced = true; checkDone(); draw(); }
-            });
-          }
-        }
-      }
-      function checkDone() {
-        if (tlPlaced && trPlaced && stage !== 3) {
-          stage = 3;
-          setTimeout(() => {
-            document.getElementById('r6f3Done').classList.remove('hidden');
-            burstConfetti(540, 340);
-            addStars(state.studentName, 2);
-          }, 200);
-        }
-      }
-      function cut() {
-        if (stage !== 0) return;
-        stage = 1;
-        document.getElementById('r6f3Cut').disabled = true;
-        document.getElementById('r6f3Rot').disabled = false;
-        draw();
-      }
-      function rotate() {
-        if (stage < 1 || curRot >= 180) return;
-        curRot = Math.min(180, curRot + 45);
-        if (curRot >= 180) {
-          document.getElementById('r6f3Rot').disabled = true;
-        }
-        draw();
+        // 각 삼각형에 이동·회전 가능
+        tris.forEach(t => {
+          const el = document.getElementById(`r6tri${t.key}`);
+          makeMoveRotatable(svg, el, {
+            cx: t.rcx, cy: t.rcy,
+            tx: 0, ty: 0, rot: 0,
+            snap: { tx: 0, ty: 0, rot: 180, dDist: 90, dRot: 45 },
+            onSnap: () => {
+              const handles = el.querySelectorAll('.moveHandle, .rotateHandle');
+              handles.forEach(h => h.style.display = 'none');
+              placedCount++;
+              if (placedCount === 4) {
+                setTimeout(() => {
+                  document.getElementById('r6f3Done').classList.remove('hidden');
+                  burstConfetti(380, 360);
+                  addStars(state.studentName, 3);
+                }, 250);
+              }
+            }
+          });
+        });
       }
       function reset() {
-        stage = 0; curRot = 0;
-        tlPlaced = false; trPlaced = false;
+        placedCount = 0;
         document.getElementById('r6f3Done').classList.add('hidden');
-        document.getElementById('r6f3Cut').disabled = false;
-        document.getElementById('r6f3Rot').disabled = true;
-        draw();
+        render();
       }
-      document.getElementById('r6f3Cut').onclick = cut;
-      document.getElementById('r6f3Rot').onclick = rotate;
       document.getElementById('r6f3Reset').onclick = reset;
-      draw();
+      render();
     }
   },
   { // F4: 공식 확인 — 도형 위 / 식+공식 아래 (grid 통일 양식, 그림 크게)
@@ -5129,22 +5203,29 @@ defFrames('rhom', 'concept', [
 defFrames('rhom', 'summary', [
   {
     html: () => `
-      ${hintBar('✨', '마름모 → 직사각형의 절반!')}
-      <div class="stage-area">
-        <svg viewBox="0 0 700 380" width="700" height="380">
-          <g transform="translate(60,90)">
-            <polygon points="110,30 220,110 110,190 0,110" fill="rgba(255,107,157,0.5)" stroke="#FF477E" stroke-width="3"/>
-            <text x="110" y="220" text-anchor="middle" font-family="Jua" font-size="16">마름모</text>
-          </g>
-          <text x="320" y="200" font-family="Jua" font-size="36" fill="#7048E8">×2</text>
-          <text x="320" y="245" font-family="Jua" font-size="20" fill="#7048E8">하면</text>
-          <g transform="translate(390,90)">
-            <rect x="0" y="30" width="220" height="160" fill="rgba(255,201,64,0.4)" stroke="#FFB840" stroke-width="3"/>
-            <polygon points="110,30 220,110 110,190 0,110" fill="rgba(255,107,157,0.5)" stroke="#FF477E" stroke-width="2"/>
-            <text x="110" y="220" text-anchor="middle" font-family="Jua" font-size="16">직사각형</text>
-          </g>
-        </svg>
-        <div class="big-formula" style="margin: -90px auto 0; width: 88%; font-size:22px">마름모 넓이 = <span class="var">한 대각선</span> × <span class="var">다른 대각선</span> ÷ 2</div>
+      ${hintBar('✨', '<b>마름모는 큰 직사각형의 절반</b>이에요!')}
+      <div style="display:flex; flex-direction:column; gap:12px; flex:1 1 auto; min-height:0; padding: 8px">
+        <!-- 위쪽: 도형 그림 (가운데 · 크게) -->
+        <div class="stage-area" style="flex: 1 1 auto; min-height:0">
+          <svg viewBox="0 0 760 360" width="100%" height="100%" preserveAspectRatio="xMidYMid meet" style="max-height:100%">
+            <!-- 큰 직사각형 -->
+            <rect x="190" y="60" width="380" height="240" fill="rgba(255,201,64,0.18)" stroke="#FFB840" stroke-width="5" stroke-dasharray="10,5"/>
+            <!-- 마름모 -->
+            <polygon points="380,60 570,180 380,300 190,180" fill="rgba(255,107,157,0.55)" stroke="#FF477E" stroke-width="5"/>
+            <!-- 대각선 -->
+            <line x1="190" y1="180" x2="570" y2="180" stroke="#7048E8" stroke-width="3" stroke-dasharray="6,3"/>
+            <line x1="380" y1="60" x2="380" y2="300" stroke="#7048E8" stroke-width="3" stroke-dasharray="6,3"/>
+            <!-- 라벨 -->
+            <text x="380" y="38" text-anchor="middle" font-size="28" fill="#FF477E"><tspan font-weight="800">한 대각선</tspan></text>
+            <text x="600" y="186" font-size="28" fill="#7048E8"><tspan font-weight="800">다른 대각선</tspan></text>
+            <!-- 안내 -->
+            <text x="380" y="340" text-anchor="middle" font-size="26" fill="#5D4037"><tspan>마름모 = </tspan><tspan fill="#FFB840" font-weight="800">큰 직사각형</tspan><tspan> 의 </tspan><tspan fill="#7048E8" font-weight="800">절반</tspan></text>
+          </svg>
+        </div>
+        <!-- 아래쪽: 공식 박스 -->
+        <div style="background:linear-gradient(135deg,#E5DAFF,#C5B3FF); border:3px solid #7048E8; border-radius:16px; padding:14px 22px; text-align:center; font-size:26px; color:#2A2540; box-shadow:0 4px 0 #5532B8; white-space:nowrap; overflow:hidden; flex:0 0 auto">
+          <b>마름모 넓이 = <span style="color:#FF477E">한 대각선</span> × <span style="color:#7048E8">다른 대각선</span> ÷ 2</b>
+        </div>
       </div>
     `
   }
@@ -5211,6 +5292,407 @@ defFrames('rhom', 'quiz', [
     { q: '한 대각선 12 cm, 넓이 60 cm² 마름모의 다른 대각선은?', a: 10 },
     { q: '한 대각선 14 cm, 넓이 56 cm² 마름모의 다른 대각선은?', a: 8 }
   ])
+]);
+
+// ============================================================
+//  7차시: 총정리 · 마스터 인증
+// ============================================================
+function masterPool() {
+  return {
+    perimeter: [
+      { q: '한 변이 5 cm인 정삼각형의 둘레는?', a: 15, unit: 'cm' },
+      { q: '가로 6 cm, 세로 4 cm 직사각형의 둘레는?', a: 20, unit: 'cm' },
+      { q: '한 변이 7 cm인 정사각형의 둘레는?', a: 28, unit: 'cm' },
+      { q: '한 변 5 cm, 이웃한 변 3 cm 평행사변형의 둘레는?', a: 16, unit: 'cm' },
+      { q: '한 변이 6 cm인 마름모의 둘레는?', a: 24, unit: 'cm' }
+    ],
+    rect: [
+      { q: '가로 5 cm, 세로 4 cm 직사각형의 넓이는?', a: 20, unit: 'cm²' },
+      { q: '가로 8 cm, 세로 6 cm 직사각형의 넓이는?', a: 48, unit: 'cm²' },
+      { q: '한 변이 7 cm인 정사각형의 넓이는?', a: 49, unit: 'cm²' },
+      { q: '한 변이 9 cm인 정사각형의 넓이는?', a: 81, unit: 'cm²' },
+      { q: '가로 10 cm, 세로 5 cm 직사각형의 넓이는?', a: 50, unit: 'cm²' }
+    ],
+    para: [
+      { q: '밑변 6 cm, 높이 4 cm 평행사변형의 넓이는?', a: 24, unit: 'cm²' },
+      { q: '밑변 8 cm, 높이 5 cm 평행사변형의 넓이는?', a: 40, unit: 'cm²' },
+      { q: '밑변 9 cm, 높이 7 cm 평행사변형의 넓이는?', a: 63, unit: 'cm²' },
+      { q: '밑변 10 cm, 높이 6 cm 평행사변형의 넓이는?', a: 60, unit: 'cm²' },
+      { q: '밑변 12 cm, 높이 4 cm 평행사변형의 넓이는?', a: 48, unit: 'cm²' }
+    ],
+    tri: [
+      { q: '밑변 6 cm, 높이 4 cm 삼각형의 넓이는?', a: 12, unit: 'cm²' },
+      { q: '밑변 8 cm, 높이 5 cm 삼각형의 넓이는?', a: 20, unit: 'cm²' },
+      { q: '밑변 10 cm, 높이 6 cm 삼각형의 넓이는?', a: 30, unit: 'cm²' },
+      { q: '밑변 12 cm, 높이 8 cm 삼각형의 넓이는?', a: 48, unit: 'cm²' },
+      { q: '밑변 14 cm, 높이 5 cm 삼각형의 넓이는?', a: 35, unit: 'cm²' }
+    ],
+    trap: [
+      { q: '윗변 3 cm, 아랫변 5 cm, 높이 4 cm 사다리꼴의 넓이는?', a: 16, unit: 'cm²' },
+      { q: '윗변 4 cm, 아랫변 8 cm, 높이 5 cm 사다리꼴의 넓이는?', a: 30, unit: 'cm²' },
+      { q: '윗변 5 cm, 아랫변 9 cm, 높이 6 cm 사다리꼴의 넓이는?', a: 42, unit: 'cm²' },
+      { q: '윗변 6 cm, 아랫변 10 cm, 높이 4 cm 사다리꼴의 넓이는?', a: 32, unit: 'cm²' },
+      { q: '윗변 7 cm, 아랫변 11 cm, 높이 6 cm 사다리꼴의 넓이는?', a: 54, unit: 'cm²' }
+    ],
+    rhom: [
+      { q: '두 대각선이 4 cm, 6 cm인 마름모의 넓이는?', a: 12, unit: 'cm²' },
+      { q: '두 대각선이 8 cm, 5 cm인 마름모의 넓이는?', a: 20, unit: 'cm²' },
+      { q: '두 대각선이 10 cm, 6 cm인 마름모의 넓이는?', a: 30, unit: 'cm²' },
+      { q: '두 대각선이 12 cm, 8 cm인 마름모의 넓이는?', a: 48, unit: 'cm²' },
+      { q: '두 대각선이 모두 8 cm인 마름모의 넓이는?', a: 32, unit: 'cm²' }
+    ]
+  };
+}
+
+function masterQuizFrame() {
+  return {
+    html: () => `
+      <div class="hint-bar"><span class="mascot-mini">🏆</span><span class="talk">6가지 도형에서 골고루 출제돼요. <b>모두 맞히면 마스터 인증서</b>를 받아요!</span></div>
+      <!-- 설정 -->
+      <div id="mqSetup" class="stage-area" style="display:flex; flex-direction:column; align-items:center; justify-content:center; gap:24px">
+        <div style="font-size:34px; color:#5D4037">몇 문제에 도전할까요?</div>
+        <div style="display:flex; gap:18px; flex-wrap:wrap; justify-content:center">
+          <button class="check-btn" data-mqn="5"  style="font-size:32px; padding:24px 44px; background:#FFD6E3; color:#E64C82; box-shadow:0 5px 0 #C2375F">5 문제</button>
+          <button class="check-btn" data-mqn="10" style="font-size:32px; padding:24px 44px; background:#FFE9B3; color:#E69A1F; box-shadow:0 5px 0 #C99820">10 문제</button>
+          <button class="check-btn" data-mqn="15" style="font-size:32px; padding:24px 44px; background:#C7E4FF; color:#1971C2; box-shadow:0 5px 0 #15539A">15 문제</button>
+        </div>
+        <div style="font-size:18px; color:#7048E8; padding:8px 14px; background:#F3EBFE; border-radius:10px; text-align:center">
+          📚 둘레 · 직사각형 · 평행사변형 · 삼각형 · 사다리꼴 · 마름모<br>
+          <span style="font-size:15px; color:#5D4037">총 30문제에서 골고루 뽑아 출제해요.</span>
+        </div>
+      </div>
+      <!-- 풀이 -->
+      <div id="mqPlay" class="hidden" style="display:flex; flex-direction:column; gap:8px; flex:1; min-height:0">
+        <div style="display:flex; gap:14px; align-items:center; padding:8px 14px; background:#FFF1D6; border-radius:12px; border:2px solid #FFD08F; flex-wrap:wrap">
+          <span style="font-size:20px">문제 <b id="mqI" style="color:#7048E8">1</b> / <b id="mqT">5</b></span>
+          <span style="font-size:18px; color:#5D4037">분야 <b id="mqType" style="color:#FF477E">-</b></span>
+          <span style="font-size:20px">맞힘 <b id="mqS" style="color:#2FB344">0</b></span>
+          <div style="flex:1; min-width:80px; background:#FFE5BA; height:14px; border-radius:8px; overflow:hidden">
+            <div id="mqBar" style="width:0%; height:100%; background:linear-gradient(90deg,#FFC940,#FF477E,#7048E8); transition:width 0.4s"></div>
+          </div>
+        </div>
+        <div class="stage-area" style="display:flex; gap:14px; padding:12px; align-items:stretch">
+          <div style="flex: 0 0 44%; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:18px; text-align:center; padding: 6px">
+            <div id="mqText" style="font-size:24px; color:#2A2540; line-height:1.4; word-break:keep-all; overflow-wrap:break-word"></div>
+            <div style="display:flex; align-items:center; gap:10px; white-space:nowrap">
+              <input id="mqInp" type="number" placeholder="?" style="width:170px; height:64px; text-align:center; font-size:40px; border:3px solid #9775FA; border-radius:12px; outline:none; background:#FFFCF0; color:var(--ink); font-family:'Jua',sans-serif">
+              <span id="mqUnit" style="font-size:30px; color:#5D4037">cm²</span>
+            </div>
+            <button class="check-btn" id="mqChk" style="font-size:18px; padding:8px 20px">제출 ▶</button>
+            <div id="mqFb" class="feedback" style="text-align:center; margin: 0 auto; min-height:30px; word-break:keep-all"></div>
+          </div>
+          <div style="flex: 1 1 auto; display:flex; flex-direction:column; gap:6px; min-width:0">
+            <div style="text-align:center; font-size:18px; color:#5D4037">📝 마우스나 손가락으로 풀이를 써 보세요</div>
+            <div style="position:relative; flex:1 1 auto; min-height:0">
+              <canvas id="mqOcr" width="640" height="540" style="background:#FFFCF0; border:3px solid #FFD08F; border-radius:14px; touch-action:none; cursor:crosshair; display:block; width:100%; height:100%; max-height:100%"></canvas>
+              <button class="check-btn" id="mqOcrClear" style="position:absolute; right:14px; top:14px; background:#FFE5BA; color:#5D4037; box-shadow:0 3px 0 #C99820; height:36px; font-size:16px; padding:0 16px">지우기</button>
+            </div>
+          </div>
+        </div>
+      </div>
+      <!-- 결과 -->
+      <div id="mqDone" class="hidden stage-area" style="display:flex; flex-direction:column; align-items:center; justify-content:center; gap:14px; padding: 14px; overflow:auto"></div>
+    `,
+    init: () => {
+      const pools = masterPool();
+      const poolKeys = Object.keys(pools);
+      const typeNames = {
+        perimeter: '둘레', rect: '직사각형', para: '평행사변형',
+        tri: '삼각형', trap: '사다리꼴', rhom: '마름모'
+      };
+      let chosen = 0, items = [], i = 0, score = 0, done = false;
+
+      function pickBalanced(n) {
+        const sources = {}, counts = {}, remaining = {};
+        poolKeys.forEach(k => {
+          sources[k] = [...pools[k]].sort(() => Math.random() - 0.5);
+          counts[k] = 0;
+          remaining[k] = sources[k].length;
+        });
+        const result = [];
+        let safety = 0;
+        while (result.length < n && safety < 500) {
+          safety++;
+          const cand = poolKeys.filter(k => remaining[k] > 0);
+          if (cand.length === 0) break;
+          cand.sort((a, b) => counts[a] - counts[b] || Math.random() - 0.5);
+          const k = cand[0];
+          result.push({ ...sources[k][counts[k]], type: k });
+          counts[k]++; remaining[k]--;
+        }
+        return result.sort(() => Math.random() - 0.5);
+      }
+
+      let ocrReady = false;
+      function setupOcr() {
+        if (ocrReady) return;
+        const canvas = document.getElementById('mqOcr');
+        if (!canvas) return;
+        const ctx = canvas.getContext('2d');
+        ctx.strokeStyle = '#2A2540'; ctx.lineWidth = 4; ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+        let drawing = false;
+        function ptFromEvent(e) {
+          const r = canvas.getBoundingClientRect();
+          const cx = e.touches ? e.touches[0].clientX : e.clientX;
+          const cy = e.touches ? e.touches[0].clientY : e.clientY;
+          return [(cx - r.left) * canvas.width / r.width, (cy - r.top) * canvas.height / r.height];
+        }
+        canvas.addEventListener('pointerdown', e => { drawing = true; const [x,y] = ptFromEvent(e); ctx.beginPath(); ctx.moveTo(x,y); e.preventDefault(); });
+        canvas.addEventListener('pointermove', e => { if (!drawing) return; const [x,y] = ptFromEvent(e); ctx.lineTo(x,y); ctx.stroke(); e.preventDefault(); });
+        canvas.addEventListener('pointerup', () => { drawing = false; });
+        canvas.addEventListener('pointerleave', () => { drawing = false; });
+        document.getElementById('mqOcrClear').onclick = () => { ctx.clearRect(0,0,canvas.width,canvas.height); };
+        const mqInp = document.getElementById('mqInp');
+        mqInp.onkeydown = e => { if (e.key === 'Enter') document.getElementById('mqChk').click(); };
+        ocrReady = true;
+      }
+      function resetBoard() {
+        const canvas = document.getElementById('mqOcr');
+        if (canvas) { const c = canvas.getContext('2d'); c.clearRect(0,0,canvas.width,canvas.height); }
+        const mqInp = document.getElementById('mqInp');
+        if (mqInp) mqInp.value = '';
+      }
+      function nbspFix(s) {
+        return s.replace(/(\d[\d,]*)\s*(cm²|cm|m²|m|km²|개)/g, '<span style="white-space:nowrap">$1&nbsp;$2</span>');
+      }
+      function show() {
+        if (i >= chosen) return finish();
+        document.getElementById('mqI').textContent = i + 1;
+        document.getElementById('mqBar').style.width = (i/chosen*100) + '%';
+        const it = items[i];
+        document.getElementById('mqText').innerHTML = nbspFix(it.q);
+        document.getElementById('mqType').textContent = typeNames[it.type] || '-';
+        document.getElementById('mqUnit').textContent = it.unit || 'cm²';
+        document.getElementById('mqFb').className = 'feedback';
+        document.getElementById('mqFb').textContent = '';
+        resetBoard();
+        document.getElementById('mqInp').focus();
+      }
+      function finish() {
+        if (done) return; done = true;
+        document.getElementById('mqBar').style.width = '100%';
+        document.getElementById('mqPlay').classList.add('hidden');
+        const doneEl = document.getElementById('mqDone');
+        doneEl.classList.remove('hidden');
+        const perfect = (score === chosen);
+        const today = new Date();
+        const dateStr = `${today.getFullYear()}년 ${today.getMonth()+1}월 ${today.getDate()}일`;
+        if (perfect) {
+          doneEl.innerHTML = `
+            <div style="background:linear-gradient(135deg,#FFFAE0,#FFE9B3); border:6px double #C99820; border-radius:24px; padding:18px 26px; box-shadow:0 8px 0 #B8860B, 0 16px 40px rgba(184,134,11,0.3); max-width:680px; width:96%; text-align:center; position:relative">
+              <div style="position:absolute; top:12px; left:14px; font-size:30px">🏆</div>
+              <div style="position:absolute; top:12px; right:14px; font-size:30px">🏆</div>
+              <div style="font-size:18px; color:#5D4037; letter-spacing:6px">M A S T E R</div>
+              <div style="font-size:36px; color:#B8860B; font-weight:800; margin:4px 0 8px">다각형 넓이 마스터 인증서</div>
+              <div style="font-size:17px; color:#5D4037; margin-bottom:10px">위 학생은 다각형의 둘레와 넓이의 모든 공식을<br>완벽하게 익혔음을 인증합니다.</div>
+              <div style="background:white; border:3px solid #FFB840; border-radius:14px; padding:10px 22px; margin: 8px auto; display:inline-block">
+                <div style="font-size:16px; color:#888">이름</div>
+                <div style="font-size:34px; color:#FF477E; font-weight:800">${state.studentName}</div>
+              </div>
+              <div style="font-size:16px; color:#5D4037; margin-top:6px">${chosen}문제 중 <b style="color:#2FB344">${score}</b>개 모두 정답</div>
+              <div style="display:flex; justify-content:center; gap:14px; margin: 10px 0; flex-wrap:wrap; font-size:24px">
+                <span title="둘레">🌟</span>
+                <span title="직사각형">⬛</span>
+                <span title="평행사변형">▱</span>
+                <span title="삼각형">🔺</span>
+                <span title="사다리꼴">⏢</span>
+                <span title="마름모">◆</span>
+              </div>
+              <div style="font-size:17px; color:#5D4037">${dateStr}</div>
+              <div style="margin-top:8px; font-size:16px; color:#7048E8"><b>축하해요!</b> 6가지 도형의 둘레와 넓이를 모두 마스터했어요.</div>
+            </div>
+            <button class="check-btn" id="mqAgain" style="font-size:18px; padding:10px 24px; margin-top:4px">한 번 더 도전</button>
+          `;
+          markQuizDone('review');
+          const nb = document.getElementById('nextBtn');
+          if (nb) nb.disabled = false;
+          addStars(state.studentName, 10);
+          burstConfetti(500, 200);
+          setTimeout(() => burstConfetti(300, 300), 500);
+          setTimeout(() => burstConfetti(700, 300), 1000);
+        } else {
+          doneEl.innerHTML = `
+            <div style="font-size:36px; color:#7048E8"><b>🎯 도전 완료</b></div>
+            <div style="font-size:26px">${chosen}문제 중 <span style="color:#2FB344; font-size:56px; font-weight:800">${score}</span>개 정답</div>
+            <div style="font-size:20px; color:#E64C82; text-align:center">모두 맞혀야 <b>마스터 인증서</b>를 받을 수 있어요.<br>다시 도전해 보아요!</div>
+            <button class="check-btn" id="mqAgain" style="font-size:18px; padding:10px 24px">다시 도전</button>
+          `;
+          addStars(state.studentName, Math.max(1, Math.floor(score/2)));
+          burstConfetti(500, 200);
+        }
+        saveQuizScore(state.studentName, 'review', score, chosen);
+        document.getElementById('mqAgain').onclick = () => {
+          doneEl.classList.add('hidden');
+          document.getElementById('mqSetup').classList.remove('hidden');
+          done = false;
+        };
+      }
+      document.querySelectorAll('[data-mqn]').forEach(b => {
+        b.onclick = () => {
+          chosen = +b.dataset.mqn;
+          items = pickBalanced(chosen);
+          i = 0; score = 0; done = false;
+          document.getElementById('mqT').textContent = chosen;
+          document.getElementById('mqI').textContent = 1;
+          document.getElementById('mqS').textContent = 0;
+          document.getElementById('mqSetup').classList.add('hidden');
+          document.getElementById('mqPlay').classList.remove('hidden');
+          document.getElementById('mqDone').classList.add('hidden');
+          setupOcr();
+          show();
+        };
+      });
+      document.getElementById('mqChk').onclick = () => {
+        const v = +document.getElementById('mqInp').value;
+        const fb = document.getElementById('mqFb');
+        if (document.getElementById('mqInp').value === '') {
+          fb.className = 'feedback wrong show';
+          fb.textContent = '답을 적어 보세요.';
+          return;
+        }
+        if (v === items[i].a) {
+          fb.className = 'feedback right show';
+          fb.textContent = '✓ 정답.';
+          score++;
+          document.getElementById('mqS').textContent = score;
+          i++;
+          setTimeout(show, 600);
+        } else {
+          fb.className = 'feedback wrong show';
+          fb.textContent = '✗ 다시 한 번 풀어 보세요.';
+          document.getElementById('mqInp').focus();
+          document.getElementById('mqInp').select();
+        }
+      };
+    }
+  };
+}
+
+// problem: 도입
+defFrames('review', 'problem', [
+  {
+    html: () => `
+      ${hintBar('🏆', '<b>마스터 도전</b>이 시작돼요!')}
+      <div class="stage-area" style="display:flex; flex-direction:column; align-items:center; justify-content:center; gap:24px; padding:24px; text-align:center">
+        <div style="font-size:56px; line-height:1">🏆</div>
+        <div style="font-size:40px; color:#B8860B; font-weight:800">총정리 — 다각형 넓이 마스터</div>
+        <div style="font-size:22px; color:#2A2540; max-width:680px; line-height:1.6">
+          지금까지 배운 <b style="color:#FF477E">6가지 도형</b>의 둘레와 넓이를 한 번에 정리하고,<br>
+          <b style="color:#7048E8">종합 평가</b>를 풀어 <b style="color:#B8860B">마스터 인증서</b>를 받아 볼까요?
+        </div>
+        <div style="display:flex; gap:18px; flex-wrap:wrap; justify-content:center; font-size:46px">
+          <span>🌟</span><span>⬛</span><span>▱</span><span>🔺</span><span>⏢</span><span>◆</span>
+        </div>
+      </div>
+    `
+  }
+]);
+
+// concept: 6가지 공식 한 눈에
+defFrames('review', 'concept', [
+  {
+    html: () => `
+      ${hintBar('🧠', '지금까지 배운 도형들의 <b>둘레 · 넓이 공식</b>을 한 번에 정리해요.')}
+      <div class="stage-area" style="padding:14px; overflow:auto">
+        <div style="display:grid; grid-template-columns:repeat(3, 1fr); gap:12px">
+          ${[
+            { name:'정삼각형 둘레', formula:'한 변 × 3', color:'#FF477E', bg:'#FFE5EE' },
+            { name:'정사각형 둘레', formula:'한 변 × 4', color:'#FF477E', bg:'#FFE5EE' },
+            { name:'직사각형 둘레', formula:'(가로 + 세로) × 2', color:'#FF8C42', bg:'#FFF1D6' },
+            { name:'평행사변형 둘레', formula:'(한 변 + 이웃한 변) × 2', color:'#2FB344', bg:'#E0F5E5' },
+            { name:'마름모 둘레', formula:'한 변 × 4', color:'#FA5252', bg:'#FFE5E5' },
+            { name:'직사각형 넓이', formula:'가로 × 세로', color:'#FF8C42', bg:'#FFF1D6' },
+            { name:'평행사변형 넓이', formula:'밑변 × 높이', color:'#2FB344', bg:'#E0F5E5' },
+            { name:'삼각형 넓이', formula:'밑변 × 높이 ÷ 2', color:'#1971C2', bg:'#E1F0FF' },
+            { name:'사다리꼴 넓이', formula:'(윗변 + 아랫변) × 높이 ÷ 2', color:'#7048E8', bg:'#F0E6FF' },
+            { name:'마름모 넓이', formula:'한 대각선 × 다른 대각선 ÷ 2', color:'#FA5252', bg:'#FFE5E5' }
+          ].map(it => `
+            <div style="background:${it.bg}; border:3px solid ${it.color}; border-radius:14px; padding:10px 14px; box-shadow:0 3px 0 ${it.color}55">
+              <div style="font-size:16px; color:${it.color}; font-weight:800">${it.name}</div>
+              <div style="font-size:18px; color:#2A2540; margin-top:4px; word-break:keep-all">${it.formula}</div>
+            </div>
+          `).join('')}
+        </div>
+      </div>
+    `
+  }
+]);
+
+// summary: 도형 그림 + 공식
+defFrames('review', 'summary', [
+  {
+    html: () => `
+      ${hintBar('✨', '<b>도형의 모양</b>과 <b>넓이 공식</b>을 한 번에 보아요.')}
+      <div class="stage-area" style="padding:10px; overflow:auto">
+        <div style="display:grid; grid-template-columns:repeat(3, 1fr); gap:12px">
+          ${[
+            { name:'직사각형', figure:`<rect x="40" y="40" width="180" height="110" fill="rgba(199,228,255,0.6)" stroke="#1971C2" stroke-width="4"/><text x="130" y="30" text-anchor="middle" font-size="15" fill="#1971C2">가로</text><text x="34" y="100" text-anchor="end" font-size="15" fill="#1971C2">세로</text>`, formula:'가로 × 세로', color:'#1971C2' },
+            { name:'평행사변형', figure:`<polygon points="60,150 230,150 200,40 30,40" fill="rgba(200,240,207,0.6)" stroke="#2FB344" stroke-width="4"/><line x1="30" y1="40" x2="30" y2="150" stroke="#7048E8" stroke-width="3" stroke-dasharray="6,3"/><text x="130" y="172" text-anchor="middle" font-size="15" fill="#2FB344">밑변</text><text x="24" y="100" text-anchor="end" font-size="15" fill="#7048E8">높이</text>`, formula:'밑변 × 높이', color:'#2FB344' },
+            { name:'삼각형', figure:`<polygon points="130,30 220,160 40,160" fill="rgba(255,233,179,0.7)" stroke="#E69A1F" stroke-width="4"/><line x1="130" y1="30" x2="130" y2="160" stroke="#7048E8" stroke-width="3" stroke-dasharray="6,3"/><text x="130" y="180" text-anchor="middle" font-size="15" fill="#E69A1F">밑변</text><text x="144" y="100" font-size="15" fill="#7048E8">높이</text>`, formula:'밑변 × 높이 ÷ 2', color:'#E69A1F' },
+            { name:'사다리꼴', figure:`<polygon points="80,30 180,30 220,160 40,160" fill="rgba(199,228,255,0.6)" stroke="#1971C2" stroke-width="4"/><line x1="130" y1="30" x2="130" y2="160" stroke="#7048E8" stroke-width="3" stroke-dasharray="6,3"/><text x="130" y="22" text-anchor="middle" font-size="14" fill="#2FB344">윗변</text><text x="130" y="180" text-anchor="middle" font-size="14" fill="#1971C2">아랫변</text>`, formula:'(윗변 + 아랫변) × 높이 ÷ 2', color:'#1971C2' },
+            { name:'마름모', figure:`<rect x="30" y="50" width="200" height="120" fill="rgba(255,201,64,0.12)" stroke="#FFB840" stroke-width="2" stroke-dasharray="6,3"/><polygon points="130,50 230,110 130,170 30,110" fill="rgba(255,107,157,0.6)" stroke="#FF477E" stroke-width="4"/><line x1="30" y1="110" x2="230" y2="110" stroke="#7048E8" stroke-width="2" stroke-dasharray="6,3"/><line x1="130" y1="50" x2="130" y2="170" stroke="#7048E8" stroke-width="2" stroke-dasharray="6,3"/>`, formula:'한 대각선 × 다른 대각선 ÷ 2', color:'#FF477E' },
+            { name:'다각형 둘레', figure:`<polygon points="60,40 200,40 230,110 130,180 30,110" fill="rgba(255,107,157,0.4)" stroke="#FF477E" stroke-width="4"/><text x="130" y="115" text-anchor="middle" font-size="16" fill="#FF477E" font-weight="800">둘레</text>`, formula:'모든 변의 길이를 더해요', color:'#FF477E' }
+          ].map(it => `
+            <div style="background:white; border:3px solid ${it.color}; border-radius:14px; padding:8px; box-shadow:0 3px 0 ${it.color}55">
+              <svg viewBox="0 0 260 200" style="width:100%; height:120px">${it.figure}</svg>
+              <div style="text-align:center; font-size:15px; color:${it.color}; font-weight:800; margin-top:4px">${it.name}</div>
+              <div style="text-align:center; font-size:14px; color:#2A2540; margin-top:2px; word-break:keep-all">${it.formula}</div>
+            </div>
+          `).join('')}
+        </div>
+      </div>
+    `
+  }
+]);
+
+// practice: 종합 연습
+defFrames('review', 'practice', [
+  practiceFrame('직사각형 넓이',
+    `<rect x="120" y="60" width="460" height="220" fill="#C7E4FF" stroke="#1971C2" stroke-width="5"/>
+     <text x="350" y="38" text-anchor="middle" font-size="80" fill="#1971C2"><tspan font-weight="800">가로 12 cm</tspan></text>
+     <text x="108" y="178" text-anchor="end" font-size="80" fill="#1971C2"><tspan font-weight="800">세로 5 cm</tspan></text>`,
+    '가로 12 cm, 세로 5 cm 직사각형의 넓이는?',
+    60, 'cm²', null,
+    [{n:12},{op:'×'},{n:5}]),
+  practiceFrame('평행사변형 넓이',
+    `<polygon points="120,280 540,280 460,80 40,80" fill="#C8F0CF" stroke="#2FB344" stroke-width="5"/>
+     <line x1="40" y1="80" x2="40" y2="280" stroke="#7048E8" stroke-width="3" stroke-dasharray="6,4"/>
+     <text x="320" y="320" text-anchor="middle" font-size="80" fill="#2FB344"><tspan font-weight="800">밑변 9 cm</tspan></text>
+     <text x="56" y="190" font-size="80" fill="#7048E8"><tspan font-weight="800">높이 7 cm</tspan></text>`,
+    '밑변 9 cm, 높이 7 cm 평행사변형의 넓이는?',
+    63, 'cm²', null,
+    [{n:9},{op:'×'},{n:7}]),
+  practiceFrame('삼각형 넓이',
+    `<polygon points="350,60 600,290 100,290" fill="#FFE9B3" stroke="#FFB840" stroke-width="5"/>
+     <line x1="350" y1="60" x2="350" y2="290" stroke="#7048E8" stroke-width="3" stroke-dasharray="5,3"/>
+     <text x="350" y="325" text-anchor="middle" font-size="80" fill="#E69A1F"><tspan font-weight="800">밑변 10 cm</tspan></text>
+     <text x="365" y="180" font-size="80" fill="#7048E8"><tspan font-weight="800">높이 6 cm</tspan></text>`,
+    '밑변 10 cm, 높이 6 cm 삼각형의 넓이는?',
+    30, 'cm²', null,
+    [{n:10},{op:'×'},{n:6},{op:'÷'},{n:2}]),
+  practiceFrame('사다리꼴 넓이',
+    `<polygon points="200,80 400,80 540,280 60,280" fill="#E5DAFF" stroke="#7048E8" stroke-width="5"/>
+     <line x1="300" y1="80" x2="300" y2="280" stroke="#FF477E" stroke-width="3" stroke-dasharray="5,3"/>
+     <text x="300" y="60" text-anchor="middle" font-size="70" fill="#2FB344"><tspan font-weight="800">윗변 4 cm</tspan></text>
+     <text x="300" y="320" text-anchor="middle" font-size="70" fill="#1971C2"><tspan font-weight="800">아랫변 8 cm</tspan></text>
+     <text x="314" y="186" font-size="70" fill="#FF477E"><tspan font-weight="800">높이 5 cm</tspan></text>`,
+    '윗변 4 cm, 아랫변 8 cm, 높이 5 cm 사다리꼴의 넓이는?',
+    30, 'cm²', null,
+    [{op:'('},{n:4},{op:'+'},{n:8},{op:')'},{op:'×'},{n:5},{op:'÷'},{n:2}]),
+  practiceFrame('마름모 넓이',
+    `<polygon points="350,60 540,200 350,340 160,200" fill="#FFD6E3" stroke="#E64C82" stroke-width="5"/>
+     <line x1="160" y1="200" x2="540" y2="200" stroke="#7048E8" stroke-width="3" stroke-dasharray="5,3"/>
+     <line x1="350" y1="60" x2="350" y2="340" stroke="#7048E8" stroke-width="3" stroke-dasharray="5,3"/>
+     <text x="350" y="45" text-anchor="middle" font-size="74" fill="#7048E8"><tspan font-weight="800">한 대각선 8 cm</tspan></text>
+     <text x="555" y="205" font-size="74" fill="#7048E8"><tspan font-weight="800">6 cm</tspan></text>`,
+    '두 대각선이 8 cm, 6 cm인 마름모의 넓이는?',
+    24, 'cm²', null,
+    [{n:8},{op:'×'},{n:6},{op:'÷'},{n:2}])
+]);
+
+// quiz: 마스터 평가
+defFrames('review', 'quiz', [
+  masterQuizFrame()
 ]);
 
 // ============================================================
