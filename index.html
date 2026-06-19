@@ -150,33 +150,30 @@
   }
   .login-card h2 { font-size: 30px; color: #2A2540; margin-bottom: 6px; }
   .login-card p { font-size: 19px; color: var(--ink-soft); margin-bottom: 20px; }
-  .name-grid {
-    display: grid;
-    grid-template-columns: repeat(6, 1fr);
-    gap: 12px;
-    margin-bottom: 22px;
-    max-height: 320px;
-  }
-  .name-tile {
-    background: linear-gradient(135deg, #FFF1D6 0%, #FFDC8A 100%);
-    border: 2px solid #FFB840;
-    border-radius: 14px;
-    padding: 14px 8px;
-    cursor: pointer;
-    font-size: 22px;
-    color: var(--ink);
-    transition: all 0.15s;
-    box-shadow: 0 3px 0 #E69A1F;
-  }
-  .name-tile:hover { transform: translateY(-2px); box-shadow: 0 5px 0 #E69A1F; background: linear-gradient(135deg,#FFE9B3,#FFD06D); }
-  .name-tile:active { transform: translateY(2px); box-shadow: 0 1px 0 #E69A1F; }
   .login-extra { display: flex; gap: 12px; justify-content: center; align-items: center; flex-wrap: wrap; }
-  .login-extra input {
-    padding: 12px 18px; border: 2px solid #FFE0AE; border-radius: 12px;
-    font-size: 20px; width: 240px;
+  .name-select-wrap { display: flex; justify-content: center; margin-bottom: 22px; }
+  .name-select {
+    font-family: 'Jua', sans-serif;
+    font-size: 24px;
+    padding: 14px 24px;
+    border: 3px solid #FFB840;
+    border-radius: 14px;
     background: #FFFCF0;
+    color: var(--ink);
+    cursor: pointer;
+    width: 100%;
+    max-width: 420px;
+    box-shadow: 0 3px 0 #E69A1F;
+    appearance: none;
+    -webkit-appearance: none;
+    background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='%23E69A1F'><path d='M7 10l5 5 5-5z'/></svg>");
+    background-repeat: no-repeat;
+    background-position: right 14px center;
+    background-size: 28px;
+    padding-right: 50px;
   }
-  .login-extra input:focus { outline: none; border-color: var(--sun-d); background: white; }
+  .name-select:focus { outline: none; border-color: #FF8C42; background-color: white; }
+  .name-select:disabled { opacity: 0.6; cursor: not-allowed; }
 
   /* ===== 메인 레이아웃 (헤더 + 사이드바 + 콘텐츠) ===== */
   .app-shell { position: absolute; inset: 0; display: flex; flex-direction: column; }
@@ -947,11 +944,14 @@ function renderLogin() {
 
     <div class="login-card">
       <h2>이름을 골라 시작해요</h2>
-      <p>아래 이름이 없으면 직접 적어 넣어도 돼요</p>
-      <div class="name-grid" id="nameGrid"></div>
+      <p>아래 목록에서 자기 이름을 선택해 주세요</p>
+      <div class="name-select-wrap">
+        <select id="nameSelect" class="name-select" disabled>
+          <option value="">— 이름을 불러오는 중 —</option>
+        </select>
+      </div>
       <div class="login-extra">
-        <input id="manualName" placeholder="이름 직접 쓰기">
-        <button class="nav-btn primary" id="loginBtn">시작하기 ▶</button>
+        <button class="nav-btn primary" id="loginBtn" disabled>시작하기 ▶</button>
         <button class="icon-btn purple" id="loginSettings" title="설정">
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
         </button>
@@ -964,29 +964,30 @@ async function postRender() {
   if (state.view === 'login') {
     // 학생 목록 로드
     const list = await sheetFetchStudents();
-    const grid = document.getElementById('nameGrid');
-    if (grid) {
+    const select = document.getElementById('nameSelect');
+    const loginBtn = document.getElementById('loginBtn');
+    if (select) {
       if (list && Array.isArray(list) && list.length) {
-        grid.innerHTML = list.map(n => `<button class="name-tile" data-name="${n}">${n}</button>`).join('');
-        grid.querySelectorAll('.name-tile').forEach(b => {
-          b.onclick = () => { state.studentName = b.dataset.name; go('home'); };
-        });
+        select.innerHTML = '<option value="">— 이름을 골라 주세요 —</option>'
+          + list.map(n => `<option value="${n}">${n}</option>`).join('');
+        select.disabled = false;
       } else {
         // 시트가 없거나 실패 → 안내
-        grid.innerHTML = `<div style="grid-column: span 6; color:#888; padding:20px; font-size:18px; font-family: 'Gowun Batang', 'Noto Sans KR', serif; line-height: 1.6;">
-          학생 목록이 없어요. 오른쪽 톱니바퀴를 눌러 스프레드시트를 연결하거나, 아래에 이름을 직접 적어 시작해요.
-        </div>`;
+        select.innerHTML = '<option value="">학생 목록을 불러올 수 없어요</option>';
+        select.disabled = true;
+        loginBtn.disabled = true;
       }
     }
-    document.getElementById('loginBtn').onclick = () => {
-      const n = document.getElementById('manualName').value.trim();
-      if (!n) return;
-      state.studentName = n;
-      go('home');
-    };
-    document.getElementById('manualName').onkeydown = e => {
-      if (e.key === 'Enter') document.getElementById('loginBtn').click();
-    };
+    if (select && loginBtn) {
+      select.onchange = () => {
+        loginBtn.disabled = !select.value;
+      };
+      loginBtn.onclick = () => {
+        if (!select.value) return;
+        state.studentName = select.value;
+        go('home');
+      };
+    }
     document.getElementById('loginSettings').onclick = () => openSettings();
     return;
   }
