@@ -2,7 +2,11 @@
 <html lang="ko">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, maximum-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, maximum-scale=1, viewport-fit=cover">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="screen-orientation" content="landscape">
+<meta name="x5-orientation" content="landscape">
 <title>다각형의 둘레와 넓이 — 도형 모험</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -750,6 +754,13 @@
   .drop-zone.matched { background: #DCF5E1; border-color: var(--mint); border-style: solid; }
 
   .hidden { display: none !important; }
+
+  /* ============================================================
+     가로/세로 자동 반응형
+     기본은 가로 비율(1280×800). 화면 비율이 가로형을 유지할 수 있는 만큼
+     1:1 스케일에 가깝게 채우고, 세로 모드에서는 비율을 유지한 채 자동 축소.
+     ============================================================ */
+  .stage { padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left); }
 </style>
 </head>
 <body>
@@ -861,10 +872,27 @@ function getQuizScore(student, unitId) {
 // ============================================================
 //  Google Sheets 연동 (Apps Script Web App URL)
 // ============================================================
-function getSheetUrl() { return lsGet('poly.sheetUrl', ''); }
+// 학생용 입장 주소(#c=<선생님 exec 주소>) 가 있으면 그 URL 을 우선 사용
+function getHashSheetUrl() {
+  const h = (window.location.hash || '').replace(/^#/, '');
+  if (!h) return '';
+  const m = h.match(/(?:^|[&;])c=([^&;]+)/);
+  if (m) { try { return decodeURIComponent(m[1]); } catch (e) { return m[1]; } }
+  return '';
+}
+function getSheetUrl() { return getHashSheetUrl() || lsGet('poly.sheetUrl', ''); }
 function setSheetUrl(u) { lsSet('poly.sheetUrl', u); }
 function getClassName() { return lsGet('poly.className', ''); }
 function setClassName(c) { lsSet('poly.className', c); }
+// 모드 판별
+function isTeacherMode() { return !getHashSheetUrl(); }                 // 학생 링크가 아닐 때만 선생님 메뉴 노출
+function isDemoMode()    { return !getSheetUrl(); }                     // 어떤 시트 주소도 없으면 데모(무료 체험)
+// 데모용 자리표시자 명단 (학생1 ~ 학생30)
+function getDemoStudentList() {
+  const arr = [];
+  for (let i = 1; i <= 30; i++) arr.push('학생' + i);
+  return arr;
+}
 
 async function sheetFetchStudents() {
   const url = getSheetUrl();
@@ -962,33 +990,35 @@ function renderLogin() {
 
 async function postRender() {
   if (state.view === 'login') {
-    // 학생 목록 로드
-    const list = await sheetFetchStudents();
     const select = document.getElementById('nameSelect');
     const loginBtn = document.getElementById('loginBtn');
+    // 학생 명단 결정: 시트 연결 시 시트 명단, 그 외(데모/시트 빈 경우)는 학생1~학생30
+    let list = null;
+    if (!isDemoMode()) {
+      const fetched = await sheetFetchStudents();
+      if (fetched && Array.isArray(fetched) && fetched.length) list = fetched;
+    }
+    if (!list) list = getDemoStudentList();
     if (select) {
-      if (list && Array.isArray(list) && list.length) {
-        select.innerHTML = '<option value="">— 이름을 골라 주세요 —</option>'
-          + list.map(n => `<option value="${n}">${n}</option>`).join('');
-        select.disabled = false;
-      } else {
-        // 시트가 없거나 실패 → 안내
-        select.innerHTML = '<option value="">학생 목록을 불러올 수 없어요</option>';
-        select.disabled = true;
-        loginBtn.disabled = true;
-      }
+      select.innerHTML = '<option value="">— 이름을 골라 주세요 —</option>'
+        + list.map(n => `<option value="${n}">${n}</option>`).join('');
+      select.disabled = false;
     }
     if (select && loginBtn) {
-      select.onchange = () => {
-        loginBtn.disabled = !select.value;
-      };
+      loginBtn.disabled = true;                 // 이름을 고르기 전에는 비활성
+      select.onchange = () => { loginBtn.disabled = !select.value; };
       loginBtn.onclick = () => {
         if (!select.value) return;
         state.studentName = select.value;
         go('home');
       };
     }
-    document.getElementById('loginSettings').onclick = () => openSettings();
+    // 학생 링크(#c=)로 들어왔으면 선생님 메뉴 버튼 자체를 DOM에서 제거
+    const ls = document.getElementById('loginSettings');
+    if (ls) {
+      if (isTeacherMode()) ls.onclick = () => openSettings();
+      else ls.remove();
+    }
     return;
   }
 
@@ -2393,61 +2423,108 @@ function quizFrameMaker(unitId, pool) {
 
 // --- 문제 상황 ---
 defFrames('perimeter', 'problem', [
-  { // F1: 운동장 한 바퀴 — 크게 보여 주고, 측정 단계에서는 자만 표시
-    html: () => {
-      const vbW = 800, vbH = 460;
-      // 큰 트랙 (초기 표시용)
-      const W = 600, H = 240, R = 120;       // 큰 트랙
-      const trackX = (vbW - W) / 2;          // 100
-      const trackY = (vbH - H) / 2;          // 110 — viewBox 가운데 정렬
-      // 자 (측정 단계) — 600 폭, viewBox 가운데
-      const rulerW = 600;
-      const ropeX = (vbW - rulerW) / 2;
-      const ropeY = 200;
-      const rulerY = ropeY + 14;
-      const rulerH = 36;
+  { // F1: 운동장 한 바퀴 — 같은 길이의 끈이 풀려서 자 위로 내려오는 사실적 흐름
+    _geom: (function() {
+      // viewBox 를 넓혀 큰 운동장 트랙(둘레)과 같은 길이의 자가 모두 들어가게 함.
+      const vbW = 1300, vbH = 580;
+      // 트랙 — 화면을 꽉 채우는 큰 운동장
+      const W = 500, H = 240, R = 120;
+      const cx = vbW / 2;
+      const cyT = 180;
+      const trackX = cx - W/2;
+      const trackY = cyT - H/2;
+      const peri = 2 * (W - 2*R) + 2 * Math.PI * R;  // ≈ 1234 SVG 단위 = 100 m
+      const N = 80;
+      // 둥근 직사각형 둘레 위의 점 (상단 직선 좌측 끝에서 시작, 시계 방향)
+      function pt(d) {
+        const top = W - 2*R, arc = Math.PI * R / 2;
+        const right = H - 2*R, bottom = W - 2*R, left = H - 2*R;
+        let s = d;
+        if (s < top) return { x: trackX + R + s, y: trackY };
+        s -= top;
+        if (s < arc) { const a = -Math.PI/2 + s/R; return { x: trackX+W-R + R*Math.cos(a), y: trackY+R + R*Math.sin(a) }; }
+        s -= arc;
+        if (s < right) return { x: trackX + W, y: trackY + R + s };
+        s -= right;
+        if (s < arc) { const a = s/R; return { x: trackX+W-R + R*Math.cos(a), y: trackY+H-R + R*Math.sin(a) }; }
+        s -= arc;
+        if (s < bottom) return { x: trackX + W - R - s, y: trackY + H };
+        s -= bottom;
+        if (s < arc) { const a = Math.PI/2 + s/R; return { x: trackX+R + R*Math.cos(a), y: trackY+H-R + R*Math.sin(a) }; }
+        s -= arc;
+        if (s < left) return { x: trackX, y: trackY + H - R - s };
+        s -= left;
+        const a = Math.PI + s/R;
+        return { x: trackX+R + R*Math.cos(a), y: trackY+R + R*Math.sin(a) };
+      }
+      const ropeY = 405;
+      const ropeStartX = cx - peri/2;
+      const wrappedPts = [], straightPts = [];
+      for (let i = 0; i <= N; i++) {
+        wrappedPts.push(pt(peri * i / N));
+        straightPts.push({ x: ropeStartX + peri * i / N, y: ropeY });
+      }
+      return { vbW, vbH, W, H, R, cx, cyT, trackX, trackY, peri, ropeY, ropeStartX, wrappedPts, straightPts };
+    })(),
+    html: function() {
+      const g = this._geom;
+      const pathD = pts => 'M ' + pts[0].x.toFixed(2) + ',' + pts[0].y.toFixed(2) +
+        pts.slice(1).map(p => ' L ' + p.x.toFixed(2) + ',' + p.y.toFixed(2)).join('');
+      const wrappedD = pathD(g.wrappedPts);
+      // 자
+      const rulerW = g.peri;
+      const rulerX = g.ropeStartX;
+      const rulerY = g.ropeY + 18;
+      const rulerH = 30;
       const ticks = 10;
       const tickDx = rulerW / ticks;
       let tickSvg = '';
       for (let i = 0; i <= ticks; i++) {
-        const tx = ropeX + i*tickDx;
+        const tx = rulerX + i*tickDx;
         const major = (i % 5 === 0);
-        tickSvg += `<line x1="${tx}" y1="${rulerY}" x2="${tx}" y2="${rulerY + (major ? rulerH : rulerH*0.6)}" stroke="#5D4037" stroke-width="${major ? 2 : 1}"/>`;
+        tickSvg += `<line x1="${tx.toFixed(2)}" y1="${rulerY}" x2="${tx.toFixed(2)}" y2="${rulerY + (major ? rulerH : rulerH*0.6)}" stroke="#5D4037" stroke-width="${major ? 2 : 1}"/>`;
         if (major) {
           const labelX = (i === ticks) ? tx - 10 : tx;
           const anchor = (i === ticks) ? 'end' : 'middle';
-          tickSvg += `<text x="${labelX}" y="${rulerY + rulerH + 26}" text-anchor="${anchor}" font-size="22" fill="#5D4037">${i*10}</text>`;
+          tickSvg += `<text x="${labelX.toFixed(2)}" y="${rulerY + rulerH + 22}" text-anchor="${anchor}" font-size="20" fill="#5D4037">${i*10}</text>`;
         }
       }
+      const peri = g.peri.toFixed(2);
       return `
       <div style="display:flex; flex-direction:column; gap:10px; flex:1; min-height:0">
         ${hintBar('🏃', '운동장 트랙의 <b>둘레는 어떻게 측정할 수 있을까요?</b>')}
         <div class="stage-area" style="position:relative">
-          <svg id="p1f1" viewBox="0 0 ${vbW} ${vbH}" preserveAspectRatio="xMidYMid meet" style="width:100%; height:100%; max-height:100%">
-            <defs><pattern id="grass" patternUnits="userSpaceOnUse" width="20" height="20"><rect width="20" height="20" fill="#A8E6A1"/><circle cx="5" cy="5" r="1" fill="#6BCB77"/><circle cx="15" cy="15" r="1" fill="#6BCB77"/></pattern></defs>
-            <!-- 큰 트랙 (초기 + 둘러 보기 단계) -->
+          <svg id="p1f1" viewBox="0 0 ${g.vbW} ${g.vbH}" preserveAspectRatio="xMidYMid meet" style="width:100%; height:100%; max-height:100%">
+            <defs>
+              <pattern id="grass" patternUnits="userSpaceOnUse" width="22" height="22"><rect width="22" height="22" fill="#9CDFA6"/><circle cx="5" cy="5" r="1.4" fill="#6BCB77"/><circle cx="15" cy="15" r="1.4" fill="#6BCB77"/><circle cx="18" cy="3" r="1" fill="#5BAF66"/></pattern>
+              <pattern id="trackSurface" patternUnits="userSpaceOnUse" width="14" height="14"><rect width="14" height="14" fill="#F2A85A"/><circle cx="3" cy="3" r="0.8" fill="#D9893A"/><circle cx="10" cy="10" r="0.8" fill="#D9893A"/></pattern>
+            </defs>
+            <!-- 트랙 (측정 단계에서 사라짐) — 외곽 주행면 + 안쪽 잔디 필드 -->
             <g id="p1f1Track" style="transition: opacity 0.6s">
-              <rect x="${trackX}" y="${trackY}" width="${W}" height="${H}" rx="${R}" fill="url(#grass)" stroke="#C8E6C9" stroke-width="2"/>
-              <text x="${vbW/2}" y="${trackY + H/2 + 12}" text-anchor="middle" font-size="36" fill="#5D4037">운동장 트랙</text>
-              <rect x="${trackX}" y="${trackY}" width="${W}" height="${H}" rx="${R}" fill="none" stroke="#FFB3C7" stroke-width="3" stroke-dasharray="8,6"/>
-              <rect id="p1f1Tape" x="${trackX}" y="${trackY}" width="${W}" height="${H}" rx="${R}" fill="none"
-                    stroke="#FF477E" stroke-width="8" stroke-linecap="round"
-                    pathLength="100" stroke-dasharray="100 100" stroke-dashoffset="100"
-                    style="transition: stroke-dashoffset 2.6s ease-in-out"/>
+              <!-- 주행면 (모래/타탄 색) -->
+              <rect x="${g.trackX}" y="${g.trackY}" width="${g.W}" height="${g.H}" rx="${g.R}" fill="url(#trackSurface)" stroke="#A86A28" stroke-width="3"/>
+              <!-- 안쪽 잔디 필드 -->
+              <rect x="${g.trackX + 36}" y="${g.trackY + 36}" width="${g.W - 72}" height="${g.H - 72}" rx="${g.R - 36}" fill="url(#grass)" stroke="#FFFFFF" stroke-width="3"/>
+              <!-- 레인 분리선 (얇은 흰색) -->
+              <rect x="${g.trackX + 18}" y="${g.trackY + 18}" width="${g.W - 36}" height="${g.H - 36}" rx="${g.R - 18}" fill="none" stroke="#FFFFFF" stroke-width="1.5" stroke-dasharray="0"/>
+              <!-- 출발선 -->
+              <line x1="${g.trackX + g.R}" y1="${g.trackY}" x2="${g.trackX + g.R}" y2="${g.trackY + 36}" stroke="#FFFFFF" stroke-width="3"/>
+              <text x="${g.cx}" y="${g.cyT + 18}" text-anchor="middle" font-size="46" font-family="Jua, sans-serif" font-weight="700" fill="#2A2540">운동장 트랙</text>
             </g>
-            <!-- 측정 단계: 자만 표시 -->
-            <g id="p1f1Measure" style="opacity:0; transition:opacity 0.6s">
-              <text x="${vbW/2}" y="${ropeY - 60}" text-anchor="middle" font-size="26" fill="#5D4037">끈을 곧게 펼쳐서 자로 재면…</text>
-              <line id="p1f1Rope" x1="${ropeX}" y1="${ropeY}" x2="${ropeX + rulerW}" y2="${ropeY}" stroke="#FF477E" stroke-width="9" stroke-linecap="round"
-                    pathLength="100" stroke-dasharray="100 100" stroke-dashoffset="100"
-                    style="transition: stroke-dashoffset 1.2s ease-out 0.3s"/>
-              <rect x="${ropeX}" y="${rulerY}" width="${rulerW}" height="${rulerH}" fill="#FFFCF0" stroke="#5D4037" stroke-width="2" rx="3"/>
+            <!-- 끈 — 같은 path 가 트랙을 감싼 모양에서 직선으로 부드럽게 변형 -->
+            <path id="p1f1Rope" d="${wrappedD}" fill="none" stroke="#FF477E" stroke-width="9"
+                  stroke-linecap="round" stroke-linejoin="round"
+                  pathLength="${peri}" stroke-dasharray="${peri} ${peri}" stroke-dashoffset="${peri}"
+                  style="transition: stroke-dashoffset 2.6s ease-in-out"/>
+            <!-- 자 + 결과 (측정 단계에서 등장) -->
+            <g id="p1f1Measure" style="opacity:0; transition: opacity 0.5s 1.4s">
+              <rect x="${rulerX}" y="${rulerY}" width="${rulerW}" height="${rulerH}" fill="#FFFCF0" stroke="#5D4037" stroke-width="2" rx="3"/>
               ${tickSvg}
-              <text x="${ropeX + rulerW + 18}" y="${rulerY + rulerH + 26}" font-size="22" fill="#5D4037">m</text>
-              <text x="${vbW/2}" y="${rulerY + rulerH + 90}" text-anchor="middle" fill="#7048E8" font-weight="800">
-                <tspan font-size="32">트랙 둘레</tspan>
-                <tspan font-size="32" dx="8">=</tspan>
-                <tspan font-size="56" dx="10" fill="#FF477E">100 m</tspan>
+              <text x="${(rulerX + rulerW + 16).toFixed(2)}" y="${rulerY + rulerH + 22}" font-size="20" fill="#5D4037">m</text>
+              <text x="${g.cx}" y="${rulerY + rulerH + 78}" text-anchor="middle" fill="#7048E8" font-weight="800">
+                <tspan font-size="30">트랙 둘레</tspan>
+                <tspan font-size="30" dx="6">=</tspan>
+                <tspan font-size="52" dx="8" fill="#FF477E">100 m</tspan>
               </text>
             </g>
           </svg>
@@ -2459,49 +2536,73 @@ defFrames('perimeter', 'problem', [
       </div>
       `;
     },
-    init: () => {
-      const tape = document.getElementById('p1f1Tape');
-      const go = document.getElementById('p1f1Go');
-      const rs = document.getElementById('p1f1R');
+    init: function() {
+      const g = this._geom;
+      const path = document.getElementById('p1f1Rope');
       const track = document.getElementById('p1f1Track');
       const measure = document.getElementById('p1f1Measure');
-      const rope = document.getElementById('p1f1Rope');
-      let stage = 0; // 0: 초기, 1: 둘렀음, 2: 측정
+      const go = document.getElementById('p1f1Go');
+      const rs = document.getElementById('p1f1R');
+      const peri = g.peri.toFixed(2);
+      let stage = 0;
+      let morphRAF = null;
+      const pathD = pts => 'M ' + pts[0].x.toFixed(2) + ',' + pts[0].y.toFixed(2) +
+        pts.slice(1).map(p => ' L ' + p.x.toFixed(2) + ',' + p.y.toFixed(2)).join('');
+      // 같은 점 개수로 보간 → 길이가 보존되며 둥근 모양에서 직선으로 부드럽게 변형
+      function morph(fromPts, toPts, duration, onDone) {
+        if (morphRAF) cancelAnimationFrame(morphRAF);
+        const start = performance.now();
+        function step(now) {
+          const t = Math.min(1, (now - start) / duration);
+          const e = t < 0.5 ? 4*t*t*t : 1 - Math.pow(-2*t + 2, 3)/2;  // easeInOutCubic
+          const pts = fromPts.map((p, i) => ({
+            x: p.x + (toPts[i].x - p.x) * e,
+            y: p.y + (toPts[i].y - p.y) * e
+          }));
+          path.setAttribute('d', pathD(pts));
+          if (t < 1) morphRAF = requestAnimationFrame(step);
+          else { morphRAF = null; if (onDone) onDone(); }
+        }
+        morphRAF = requestAnimationFrame(step);
+      }
       function reset() {
         stage = 0;
-        tape.style.transition = 'none';
-        tape.setAttribute('stroke-dashoffset', '100');
+        if (morphRAF) { cancelAnimationFrame(morphRAF); morphRAF = null; }
+        path.style.transition = 'none';
+        path.setAttribute('d', pathD(g.wrappedPts));
+        path.setAttribute('stroke-dashoffset', peri);
         track.style.opacity = '1';
         measure.style.opacity = '0';
-        rope.style.transition = 'none';
-        rope.setAttribute('stroke-dashoffset', '100');
         go.textContent = '끈으로 한 바퀴 둘러 보기';
         go.disabled = false;
         go.style.display = '';
         requestAnimationFrame(() => {
-          tape.style.transition = 'stroke-dashoffset 2.6s ease-in-out';
-          rope.style.transition = 'stroke-dashoffset 1.2s ease-out 0.3s';
+          path.style.transition = 'stroke-dashoffset 2.6s ease-in-out';
         });
       }
       go.onclick = () => {
         if (stage === 0) {
           stage = 1;
-          tape.setAttribute('stroke-dashoffset', '0');
+          // 트랙 둘레를 따라 끈이 한 바퀴 감김
+          path.setAttribute('stroke-dashoffset', '0');
           go.disabled = true;
           setTimeout(() => {
-            burstConfetti(380, 230);
+            burstConfetti(650, 180);
             addStars(state.studentName, 1);
-            go.textContent = '끈을 펼쳐서 자로 재 보기 ▶';
+            go.textContent = '끈을 풀어서 자로 재 보기 ▶';
             go.disabled = false;
           }, 2700);
         } else if (stage === 1) {
           stage = 2;
-          // 트랙을 숨기고 자만 보이게
+          // 같은 길이의 끈이 트랙에서 풀려서 곧게 펴짐
           track.style.opacity = '0';
-          measure.style.opacity = '1';
-          rope.setAttribute('stroke-dashoffset', '0');
           go.style.display = 'none';
-          setTimeout(() => { burstConfetti(380, 320); addStars(state.studentName, 1); }, 1500);
+          // dashoffset 은 그대로 0 — 끈은 계속 보이며 모양만 변형
+          path.style.transition = 'none';
+          morph(g.wrappedPts, g.straightPts, 1800, () => {
+            measure.style.opacity = '1';
+            setTimeout(() => { burstConfetti(650, 460); addStars(state.studentName, 1); }, 800);
+          });
         }
       };
       rs.onclick = reset;
