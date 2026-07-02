@@ -735,6 +735,28 @@
     0% { transform: translateY(-40px) rotate(0); opacity: 1; }
     100% { transform: translateY(700px) rotate(720deg); opacity: 0; }
   }
+  /* 큰 가운데 폭죽 — 중심에서 방사형으로 퍼지며 떨어짐 */
+  .confetti.center-burst {
+    width: 14px; height: 22px;
+    animation: center-burst 1.9s cubic-bezier(0.16, 0.9, 0.3, 1) forwards;
+  }
+  @keyframes center-burst {
+    0%   { transform: translate(0, 0) rotate(0deg) scale(0.4); opacity: 1; }
+    35%  { transform: translate(calc(var(--dx) * 0.85), calc(var(--dy) * 0.85 - 40px)) rotate(220deg) scale(1.1); opacity: 1; }
+    100% { transform: translate(var(--dx), calc(var(--dy) + 260px)) rotate(720deg) scale(0.85); opacity: 0; }
+  }
+  /* 정답 섬광 — 가운데에서 한 번 환하게 */
+  .answer-flash {
+    position: absolute; left: 640px; top: 400px; width: 0; height: 0; pointer-events: none;
+    border-radius: 50%; transform: translate(-50%, -50%);
+    background: radial-gradient(circle, rgba(255,255,255,0.95) 0%, rgba(255,210,120,0.7) 30%, rgba(255,180,120,0) 65%);
+    animation: ans-flash 0.7s ease-out forwards;
+  }
+  @keyframes ans-flash {
+    0%   { width: 0; height: 0; opacity: 0.9; }
+    40%  { width: 480px; height: 480px; opacity: 1; }
+    100% { width: 720px; height: 720px; opacity: 0; }
+  }
 
   /* SVG 드래그 도형 */
   .draggable { cursor: grab; }
@@ -1816,6 +1838,54 @@ function burstConfetti(x, y) {
   }
 }
 
+// 정답일 때: 화면 가운데에서 크게 터지는 폭죽 + 섬광
+function centerBurst() {
+  const root = document.getElementById('root');
+  if (!root) return;
+  const cx = 640, cy = 400;  // 디자인 캔버스(1280×800) 가운데 = 화면 가운데
+  // 섬광
+  const flash = document.createElement('div');
+  flash.className = 'answer-flash';
+  root.appendChild(flash);
+  setTimeout(() => flash.remove(), 800);
+  // 방사형 폭죽 입자 80개
+  const colors = ['#FFC940','#FF6B9D','#51CF66','#4DABF7','#9775FA','#FF8C66','#FF477E','#FFB300','#FFFFFF'];
+  const N = 80;
+  for (let i = 0; i < N; i++) {
+    const c = document.createElement('div');
+    c.className = 'confetti center-burst';
+    const ang = (Math.PI * 2 * i / N) + (Math.random() - 0.5) * 0.5;
+    const r = 160 + Math.random() * 280;
+    c.style.left = cx + 'px';
+    c.style.top = cy + 'px';
+    c.style.background = colors[i % colors.length];
+    c.style.setProperty('--dx', Math.cos(ang) * r + 'px');
+    c.style.setProperty('--dy', Math.sin(ang) * r + 'px');
+    c.style.animationDelay = (Math.random() * 0.15) + 's';
+    c.style.animationDuration = (1.8 + Math.random() * 0.6) + 's';
+    root.appendChild(c);
+    setTimeout(() => c.remove(), 2800);
+  }
+}
+
+// 숫자 입력 — 음수(-) 및 e/E/+ 차단, 항상 0 이상의 정수만 허용
+document.addEventListener('keydown', (e) => {
+  const t = e.target;
+  if (!t || t.tagName !== 'INPUT') return;
+  if (t.type !== 'number' && !t.classList.contains('pr-num')) return;
+  if (e.key === '-' || e.key === '+' || e.key === 'e' || e.key === 'E' || e.key === '.' || e.key === ',') {
+    e.preventDefault();
+  }
+}, true);
+document.addEventListener('input', (e) => {
+  const t = e.target;
+  if (!t || t.tagName !== 'INPUT') return;
+  if (t.type !== 'number' && !t.classList.contains('pr-num')) return;
+  // 붙여넣기 등으로 들어온 음수·소수점·문자 모두 제거 → 양의 정수만 남김
+  const cleaned = String(t.value || '').replace(/[^\d]/g, '').replace(/^0+(?=\d)/, '');
+  if (cleaned !== t.value) t.value = cleaned;
+}, true);
+
 // 별 보상 애니메이션
 function flyStar(x, y) {
   const root = document.getElementById('root');
@@ -1840,6 +1910,74 @@ function showAns(el, txt) {
   el.innerHTML = txt;
 }
 function rerender() { render(); }
+
+// ============================================================
+//  popOut — 작은 박스를 잠시 큰 모달처럼 띄웠다가 제자리로 돌려보냄.
+//   원본은 그대로 두고 복제본을 body 위에 띄워 중앙으로 확대 → 일정 시간 유지 → 제자리로 축소·제거.
+//   .scale-wrap 의 transform 영향에서 벗어나기 위해 복제본을 body 직속으로 둠.
+// ============================================================
+let _popOutBusyUntil = 0;
+function popOut(el, opts) {
+  if (!el) return 0;
+  opts = Object.assign({ duration: 3500, scale: 2.0, gap: 280 }, opts || {});
+  const now = performance.now();
+  const startAt = Math.max(now, _popOutBusyUntil);
+  const delay = startAt - now;
+  _popOutBusyUntil = startAt + opts.duration + opts.gap;
+  setTimeout(() => {
+    const rect = el.getBoundingClientRect();
+    if (rect.width === 0 || rect.height === 0) return;
+    let back = document.getElementById('popOutBackdrop');
+    if (!back) {
+      back = document.createElement('div');
+      back.id = 'popOutBackdrop';
+      back.style.cssText = 'position:fixed; inset:0; background:rgba(20,15,40,0.45); opacity:0; pointer-events:none; z-index:9000; transition:opacity 0.35s;';
+      document.body.appendChild(back);
+    }
+    const clone = el.cloneNode(true);
+    clone.id = '';
+    clone.querySelectorAll('[id]').forEach(c => c.id = '');
+    clone.style.cssText = el.style.cssText;
+    clone.style.position = 'fixed';
+    clone.style.left = rect.left + 'px';
+    clone.style.top  = rect.top  + 'px';
+    clone.style.width  = rect.width  + 'px';
+    clone.style.height = 'auto';
+    clone.style.minHeight = rect.height + 'px';
+    clone.style.margin = '0';
+    clone.style.opacity = '1';
+    clone.style.zIndex = '9001';
+    clone.style.transformOrigin = 'center center';
+    clone.style.transition = 'transform 0.55s cubic-bezier(0.34, 1.6, 0.64, 1), box-shadow 0.4s';
+    clone.style.pointerEvents = 'auto';
+    document.body.appendChild(clone);
+    back.style.pointerEvents = 'auto';
+    requestAnimationFrame(() => {
+      back.style.opacity = '1';
+      const cx = window.innerWidth / 2, cy = window.innerHeight / 2;
+      const curCx = rect.left + rect.width / 2, curCy = rect.top + rect.height / 2;
+      const dx = cx - curCx, dy = cy - curCy;
+      clone.style.transform = `translate(${dx}px, ${dy}px) scale(${opts.scale})`;
+      clone.style.boxShadow = '0 28px 90px rgba(0,0,0,0.45)';
+    });
+    let dismissed = false;
+    function dismiss() {
+      if (dismissed) return;
+      dismissed = true;
+      clone.style.transition = 'transform 0.45s cubic-bezier(0.4,0,0.2,1), box-shadow 0.35s, opacity 0.35s 0.15s';
+      clone.style.transform = '';
+      clone.style.boxShadow = '';
+      clone.style.opacity = '0';
+      back.style.opacity = '0';
+      back.style.pointerEvents = 'none';
+      setTimeout(() => { try { clone.remove(); } catch (e) {} }, 500);
+    }
+    back.onclick = dismiss;
+    clone.onclick = dismiss;
+    setTimeout(dismiss, opts.duration);
+  }, delay);
+  return delay + opts.duration + opts.gap;
+}
 
 // 그리드 SVG 헬퍼
 function gridG(x, y, cw, ch, cell, color='#E5D6BB', w=0.6) {
@@ -1944,6 +2082,7 @@ function practiceFrame(title, svgInner, question, answer, unitLabel, addTokens, 
           solved = true;
           addStars(state.studentName, 1);
           flyStar(640, 360);
+          centerBurst();
         } else {
           fb.className = 'feedback wrong show';
           fb.textContent = '✗ 답을 다시 확인해 봐요.';
@@ -2153,6 +2292,7 @@ function quizPoolFrame(unitId, pool) {
         if (v === it.a) {
           fb.className = 'feedback right show';
           fb.textContent = '✓ 정답.';
+          centerBurst();
           score++;
           document.getElementById('qS').textContent = score;
           i++;
@@ -2401,6 +2541,7 @@ function quizFrameMaker(unitId, pool) {
           // 정답일 때만 다음으로
           fb.className = 'feedback right show';
           fb.textContent = '✓ 정답.';
+          centerBurst();
           score++;
           document.getElementById('qS').textContent = score;
           i++;
@@ -2872,7 +3013,7 @@ defFrames('perimeter', 'concept', [
         if (cur === n) {
           mulBox.style.opacity = '0.35';
           mulBox.innerHTML = '<span style="color:#888">곱셈식으로 정리하면…</span>';
-          // 1단계: 안내 문구 먼저 등장
+          // 1단계: 안내 문구 먼저 등장 → 큰 모달로 확대 → 제자리로 복귀
           setTimeout(() => {
             if (cur !== n) return;
             const polyNames = { 3:'정삼각형', 4:'정사각형', 5:'정오각형', 6:'정육각형', 8:'정팔각형' };
@@ -2881,14 +3022,16 @@ defFrames('perimeter', 'concept', [
             if (note) {
               note.innerHTML = `<b><span style="color:#E64C82">${polyNames[n]||'정다각형'}</span>은 <span style="color:#7048E8">${sideCount[n]||'모든'} 변의 길이가 모두 같기</span> 때문에, 한 변의 길이에 <span style="color:#7048E8">${sideNum[n]||'변의 개수'}</span>를 곱하면 둘레가 나와요.</b>`;
               note.style.opacity = '1';
+              popOut(note, { duration: 3800, scale: 2.0 });
             }
-          }, 700);
-          // 2단계: 곱셈식 등장
+          }, 600);
+          // 2단계: 곱셈식 등장 — 안내 모달이 끝나길 기다렸다가 띄움 (popOut 큐가 자동으로 줄세움)
           setTimeout(() => {
             if (cur !== n) return;
             mulBox.style.opacity = '1';
             mulBox.innerHTML = `<span style="white-space:nowrap"><b>${side} × ${n} = ${side*n} cm</b></span>`;
-          }, 2100);
+            popOut(mulBox, { duration: 3200, scale: 2.1 });
+          }, 800);
         } else {
           mulBox.style.opacity = '0.35';
           mulBox.innerHTML = '<span style="color:#888">곱셈식으로 정리하면…</span>';
@@ -2908,7 +3051,7 @@ defFrames('perimeter', 'concept', [
         <svg id="p2f2Svg" viewBox="0 0 800 360" preserveAspectRatio="xMidYMid meet" style="width:100%; max-height:420px; flex:1; min-height:0"></svg>
         <!-- 안내 문구 (먼저 등장) -->
         <div id="p2f2Note" style="background:linear-gradient(135deg,#FFFAEC,#FFEFD2); border:3px solid #D8B074; border-radius:14px; padding:10px 16px; text-align:center; font-size:20px; color:#5D4037; opacity:0; transition: opacity 0.5s">
-          <b><span style="color:#E64C82">정다각형</span>은 변의 길이가 모두 같기 때문에, <span style="color:#7048E8">한 변의 길이에 변의 개수를 곱하면 둘레</span>가 나와요.</b>
+          <b><span style="color:#E64C82">정다각형</span>은 변의 길이가 모두 같기 때문에, <span style="color:#7048E8">한 변의 길이에 변의 개수를 곱하면</span> 둘레가 나와요.</b>
         </div>
         <!-- 공식 박스 (안내 후 등장) -->
         <div id="p2f2Formula" style="background:linear-gradient(135deg,#FFE5BA,#FFD08F); border:3px solid #E69A1F; border-radius:16px; padding:12px 18px; text-align:center; font-size:28px; color:#2A2540; box-shadow:0 4px 0 #C99820; white-space:nowrap; overflow:hidden; opacity:0; transition: opacity 0.5s">
@@ -2962,13 +3105,14 @@ defFrames('perimeter', 'concept', [
       const note = document.getElementById('p2f2Note');
       function checkAll() {
         if (clicked.size === samples.length) {
-          // 1단계: 안내 문구 먼저 등장
-          if (note) note.style.opacity = '1';
-          // 2단계: 잠시 후 공식 등장
+          // 1단계: 안내 문구 등장 → 큰 모달로 확대 → 제자리로
+          if (note) { note.style.opacity = '1'; popOut(note, { duration: 3800, scale: 2.0 }); }
+          // 2단계: 안내 모달이 닫히면 공식 등장 → 모달
           setTimeout(() => {
             formula.style.opacity = '1';
+            popOut(formula, { duration: 3500, scale: 2.0 });
             burstConfetti(400, 380);
-          }, 1500);
+          }, 600);
         }
       }
       draw();
@@ -3074,20 +3218,22 @@ defFrames('perimeter', 'concept', [
         if (cur === N) {
           mulBox.style.opacity = '0.35';
           mulBox.innerHTML = '<span style="color:#888">곱셈식으로 정리하면…</span>';
-          // 1단계: 안내 문구 먼저
+          // 1단계: 안내 문구 등장 → 큰 모달로 확대 → 제자리로
           setTimeout(() => {
             if (cur !== N) return;
             if (note) {
-              note.innerHTML = `<b><span style="color:#FF477E">직사각형</span>은 마주보는 변의 길이가 같기 때문에, <span style="color:#7048E8">(가로 + 세로)에 2를 곱하면 둘레</span>가 나와요.</b>`;
+              note.innerHTML = `<b><span style="color:#FF477E">직사각형</span>은 마주보는 변의 길이가 같기 때문에, <span style="color:#7048E8">(가로 + 세로)에 2를 곱하면</span> 둘레가 나와요.</b>`;
               note.style.opacity = '1';
+              popOut(note, { duration: 3800, scale: 2.0 });
             }
-          }, 700);
-          // 2단계: 공식 등장
+          }, 600);
+          // 2단계: 곱셈식 등장 → 모달 (popOut 큐가 안내 이후로 자동 정렬)
           setTimeout(() => {
             if (cur !== N) return;
             mulBox.style.opacity = '1';
             mulBox.innerHTML = `<span style="white-space:nowrap"><b>(${w} + ${h}) × 2 = ${2*(w+h)} cm</b></span>`;
-          }, 2100);
+            popOut(mulBox, { duration: 3200, scale: 2.1 });
+          }, 800);
         } else {
           mulBox.style.opacity = '0.35';
           mulBox.innerHTML = '<span style="color:#888">곱셈식으로 정리하면…</span>';
@@ -3103,7 +3249,7 @@ defFrames('perimeter', 'concept', [
       <div class="stage-area" style="display:flex; flex-direction:column; gap:10px; padding:18px; align-items:stretch; justify-content:center; position:relative">
         <svg id="p2f4Svg" viewBox="0 0 800 360" preserveAspectRatio="xMidYMid meet" style="width:100%; max-height:420px; flex:1; min-height:0"></svg>
         <div id="p2f4Note" style="background:linear-gradient(135deg,#FFFAEC,#FFEFD2); border:3px solid #D8B074; border-radius:14px; padding:10px 16px; text-align:center; font-size:20px; color:#5D4037; opacity:0; transition: opacity 0.5s">
-          <b><span style="color:#E64C82">직사각형</span>은 마주보는 변의 길이가 같기 때문에, <span style="color:#7048E8">(가로 + 세로)에 2를 곱하면 둘레</span>가 나와요.</b>
+          <b><span style="color:#E64C82">직사각형</span>은 마주보는 변의 길이가 같기 때문에, <span style="color:#7048E8">(가로 + 세로)에 2를 곱하면</span> 둘레가 나와요.</b>
         </div>
         <div id="p2f4Formula" style="background:linear-gradient(135deg,#FFD6E3,#FFB3C7); border:3px solid #E64C82; border-radius:16px; padding:12px 18px; text-align:center; font-size:28px; color:#2A2540; box-shadow:0 4px 0 #C2375F; white-space:nowrap; overflow:hidden; opacity:0; transition: opacity 0.5s">
           직사각형의 둘레 = (<span style="color:#E64C82"><b>가로</b></span> + <span style="color:#E64C82"><b>세로</b></span>) × 2
@@ -3146,11 +3292,12 @@ defFrames('perimeter', 'concept', [
       const note = document.getElementById('p2f4Note');
       function checkAll() {
         if (clicked.size === samples.length) {
-          if (note) note.style.opacity = '1';
+          if (note) { note.style.opacity = '1'; popOut(note, { duration: 3800, scale: 2.0 }); }
           setTimeout(() => {
             formula.style.opacity = '1';
+            popOut(formula, { duration: 3500, scale: 2.0 });
             burstConfetti(400, 380);
-          }, 1500);
+          }, 600);
         }
       }
       draw();
@@ -3273,15 +3420,17 @@ defFrames('perimeter', 'concept', [
           setTimeout(() => {
             if (cur !== N) return;
             if (note) {
-              note.innerHTML = `<b><span style="color:#2FB344">평행사변형</span>은 마주보는 변의 길이가 같기 때문에, <span style="color:#7048E8">(한 변 + 이웃한 변)에 2를 곱하면 둘레</span>가 나와요.</b>`;
+              note.innerHTML = `<b><span style="color:#2FB344">평행사변형</span>은 마주보는 변의 길이가 같기 때문에, <span style="color:#7048E8">(한 변 + 이웃한 변)에 2를 곱하면</span> 둘레가 나와요.</b>`;
               note.style.opacity = '1';
+              popOut(note, { duration: 3800, scale: 2.0 });
             }
-          }, 700);
+          }, 600);
           setTimeout(() => {
             if (cur !== N) return;
             mulBox.style.opacity = '1';
             mulBox.innerHTML = `<span style="white-space:nowrap"><b>(${a} + ${b}) × 2 = ${2*(a+b)} cm</b></span>`;
-          }, 2100);
+            popOut(mulBox, { duration: 3200, scale: 2.1 });
+          }, 800);
         } else {
           mulBox.style.opacity = '0.35';
           mulBox.innerHTML = '<span style="color:#888">곱셈식으로 정리하면…</span>';
@@ -3297,7 +3446,7 @@ defFrames('perimeter', 'concept', [
       <div class="stage-area" style="display:flex; flex-direction:column; gap:10px; padding:18px; align-items:stretch; justify-content:center; position:relative">
         <svg id="p2f6Svg" viewBox="0 0 800 360" preserveAspectRatio="xMidYMid meet" style="width:100%; max-height:420px; flex:1; min-height:0"></svg>
         <div id="p2f6Note" style="background:linear-gradient(135deg,#FFFAEC,#FFEFD2); border:3px solid #D8B074; border-radius:14px; padding:10px 16px; text-align:center; font-size:20px; color:#5D4037; opacity:0; transition: opacity 0.5s">
-          <b><span style="color:#2FB344">평행사변형</span>은 마주보는 변의 길이가 같기 때문에, <span style="color:#7048E8">(한 변 + 이웃한 변)에 2를 곱하면 둘레</span>가 나와요.</b>
+          <b><span style="color:#2FB344">평행사변형</span>은 마주보는 변의 길이가 같기 때문에, <span style="color:#7048E8">(한 변 + 이웃한 변)에 2를 곱하면</span> 둘레가 나와요.</b>
         </div>
         <div id="p2f6Formula" style="background:linear-gradient(135deg,#C8F0CF,#A6E5B1); border:3px solid #2FB344; border-radius:16px; padding:12px 18px; text-align:center; font-size:28px; color:#2A2540; box-shadow:0 4px 0 #1F9A33; white-space:nowrap; overflow:hidden; opacity:0; transition: opacity 0.5s">
           평행사변형의 둘레 = (<span style="color:#2FB344"><b>한 변</b></span> + <span style="color:#2FB344"><b>이웃한 변</b></span>) × 2
@@ -3354,11 +3503,12 @@ defFrames('perimeter', 'concept', [
       const note = document.getElementById('p2f6Note');
       function checkAll() {
         if (clicked.size === samples.length) {
-          if (note) note.style.opacity = '1';
+          if (note) { note.style.opacity = '1'; popOut(note, { duration: 3800, scale: 2.0 }); }
           setTimeout(() => {
             formula.style.opacity = '1';
+            popOut(formula, { duration: 3500, scale: 2.0 });
             burstConfetti(400, 380);
-          }, 1500);
+          }, 600);
         }
       }
       draw();
@@ -3469,15 +3619,17 @@ defFrames('perimeter', 'concept', [
           setTimeout(() => {
             if (cur !== N) return;
             if (note) {
-              note.innerHTML = `<b><span style="color:#E64C82">마름모</span>는 네 변의 길이가 모두 같기 때문에, <span style="color:#7048E8">한 변의 길이에 4를 곱하면 둘레</span>가 나와요.</b>`;
+              note.innerHTML = `<b><span style="color:#E64C82">마름모</span>는 네 변의 길이가 모두 같기 때문에, <span style="color:#7048E8">한 변의 길이에 4를 곱하면</span> 둘레가 나와요.</b>`;
               note.style.opacity = '1';
+              popOut(note, { duration: 3800, scale: 2.0 });
             }
-          }, 700);
+          }, 600);
           setTimeout(() => {
             if (cur !== N) return;
             mulBox.style.opacity = '1';
             mulBox.innerHTML = `<span style="white-space:nowrap"><b>${side} × 4 = ${side*4} cm</b></span>`;
-          }, 2100);
+            popOut(mulBox, { duration: 3200, scale: 2.1 });
+          }, 800);
         } else {
           mulBox.style.opacity = '0.35';
           mulBox.innerHTML = '<span style="color:#888">곱셈식으로 정리하면…</span>';
@@ -3493,7 +3645,7 @@ defFrames('perimeter', 'concept', [
       <div class="stage-area" style="display:flex; flex-direction:column; gap:10px; padding:18px; align-items:stretch; justify-content:center; position:relative">
         <svg id="p2f8Svg" viewBox="0 0 800 360" preserveAspectRatio="xMidYMid meet" style="width:100%; max-height:420px; flex:1; min-height:0"></svg>
         <div id="p2f8Note" style="background:linear-gradient(135deg,#FFFAEC,#FFEFD2); border:3px solid #D8B074; border-radius:14px; padding:10px 16px; text-align:center; font-size:20px; color:#5D4037; opacity:0; transition: opacity 0.5s">
-          <b><span style="color:#E64C82">마름모</span>는 네 변의 길이가 모두 같기 때문에, <span style="color:#7048E8">한 변의 길이에 4를 곱하면 둘레</span>가 나와요.</b>
+          <b><span style="color:#E64C82">마름모</span>는 네 변의 길이가 모두 같기 때문에, <span style="color:#7048E8">한 변의 길이에 4를 곱하면</span> 둘레가 나와요.</b>
         </div>
         <div id="p2f8Formula" style="background:linear-gradient(135deg,#FFD6E3,#FFB3C7); border:3px solid #E64C82; border-radius:16px; padding:12px 18px; text-align:center; font-size:28px; color:#2A2540; box-shadow:0 4px 0 #C2375F; white-space:nowrap; overflow:hidden; opacity:0; transition: opacity 0.5s">
           마름모의 둘레 = <span style="color:#E64C82"><b>한 변</b></span> × <span style="color:#E64C82"><b>4</b></span>
@@ -3542,11 +3694,12 @@ defFrames('perimeter', 'concept', [
       const note = document.getElementById('p2f8Note');
       function checkAll() {
         if (clicked.size === samples.length) {
-          if (note) note.style.opacity = '1';
+          if (note) { note.style.opacity = '1'; popOut(note, { duration: 3800, scale: 2.0 }); }
           setTimeout(() => {
             formula.style.opacity = '1';
+            popOut(formula, { duration: 3500, scale: 2.0 });
             burstConfetti(400, 380);
-          }, 1500);
+          }, 600);
         }
       }
       draw();
@@ -3776,6 +3929,7 @@ defFrames('rect', 'problem', [
           const c = b.dataset.c;
           if (c === '나') {
             fb.innerHTML = '<span style="color:#229954"><b>✓ 정답</b> — 카펫 나가 더 커요.</span>';
+            centerBurst();
             stage = 2;
             // 선택 박스 숨기고 두 번째 질문 등장
             setTimeout(() => {
@@ -4006,7 +4160,8 @@ defFrames('rect', 'concept', [
           pop.innerHTML = `<b>넓이 = <span style="color:#E64C82">가로</span> × <span style="color:#E64C82">세로</span> = ${w} × ${h} = <span style="color:#7048E8">${w*h} cm²</span></b>`;
           pop.style.opacity = '1';
           pop.style.transform = 'translate(-50%, 0)';
-          burstConfetti(380, 200);
+          popOut(pop, { duration: 3800, scale: 2.0 });
+          centerBurst();
           addStars(state.studentName, 1);
         } else {
           fb.className = 'feedback wrong show';
@@ -4376,7 +4531,8 @@ defFrames('para', 'concept', [
           fb.textContent = '';
           pop.style.opacity = '1';
           document.getElementById('p3f3PopExpr').innerHTML = ` = ${b} × ${h} = <b>${b*h} cm²</b>`;
-          burstConfetti(380, 200);
+          popOut(pop, { duration: 3800, scale: 2.0 });
+          centerBurst();
           addStars(state.studentName, 1);
         } else {
           fb.className = 'feedback wrong show';
@@ -4722,7 +4878,8 @@ defFrames('tri', 'concept', [
           fb.textContent = '';
           pop.style.opacity = '1';
           document.getElementById('t4f3PopExpr').innerHTML = ` = ${b} × ${h} ÷ 2 = <b>${b*h/2} cm²</b>`;
-          burstConfetti(380, 200);
+          popOut(pop, { duration: 3800, scale: 2.0 });
+          centerBurst();
           addStars(state.studentName, 1);
         } else {
           fb.className = 'feedback wrong show';
@@ -5083,7 +5240,8 @@ defFrames('trap', 'concept', [
           fb.textContent = '';
           pop.style.opacity = '1';
           document.getElementById('tp5f3PopExpr').innerHTML = ` = (${t} + ${b}) × ${h} ÷ 2 = <b>${(t+b)*h/2} cm²</b>`;
-          burstConfetti(380, 200);
+          popOut(pop, { duration: 3800, scale: 2.0 });
+          centerBurst();
           addStars(state.studentName, 1);
         } else {
           fb.className = 'feedback wrong show';
@@ -5460,7 +5618,8 @@ defFrames('rhom', 'concept', [
           fb.textContent = '';
           pop.style.opacity = '1';
           document.getElementById('r6f4PopExpr').innerHTML = ` = ${d1} × ${d2} ÷ 2 = <b>${d1*d2/2} cm²</b>`;
-          burstConfetti(380, 200);
+          popOut(pop, { duration: 3800, scale: 2.0 });
+          centerBurst();
           addStars(state.studentName, 1);
         } else {
           fb.className = 'feedback wrong show';
@@ -5837,6 +5996,7 @@ function masterQuizFrame() {
         if (v === items[i].a) {
           fb.className = 'feedback right show';
           fb.textContent = '✓ 정답.';
+          centerBurst();
           score++;
           document.getElementById('mqS').textContent = score;
           i++;
